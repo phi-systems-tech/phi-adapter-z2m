@@ -1023,6 +1023,22 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
             outValue = raw * binding.valueScale;
             break;
         }
+        case ChannelKind::AmbientLightLevel: {
+            if (value.isString()) {
+                const QString raw = value.toString();
+                if (!binding.enumRawToValue.isEmpty()) {
+                    const auto it = binding.enumRawToValue.constFind(raw);
+                    if (it != binding.enumRawToValue.constEnd()) {
+                        outValue = it.value();
+                        break;
+                    }
+                }
+                outValue = raw;
+            } else if (value.isDouble()) {
+                outValue = value.toInt();
+            }
+            break;
+        }
         case ChannelKind::Duration: {
             outValue = value.toInt();
             break;
@@ -1398,6 +1414,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
         { QStringLiteral("temperature"), { ChannelKind::Temperature, ChannelDataType::Float, QStringLiteral("C"), false } },
         { QStringLiteral("humidity"), { ChannelKind::Humidity, ChannelDataType::Float, QStringLiteral("%"), false } },
         { QStringLiteral("illuminance"), { ChannelKind::Illuminance, ChannelDataType::Int, QStringLiteral("lx"), false } },
+        { QStringLiteral("illumination"), { ChannelKind::AmbientLightLevel, ChannelDataType::Enum, QString(), false } },
         { QStringLiteral("occupancy"), { ChannelKind::Motion, ChannelDataType::Bool, QString(), false } },
         { QStringLiteral("motion"), { ChannelKind::Motion, ChannelDataType::Bool, QString(), false } },
         { QStringLiteral("battery"), { ChannelKind::Battery, ChannelDataType::Int, QStringLiteral("%"), false } },
@@ -1673,6 +1690,7 @@ DeviceClass Z2mAdapter::inferDeviceClass(const QList<QJsonObject> &exposes) cons
         } else if (property == QStringLiteral("temperature")
                    || property == QStringLiteral("humidity")
                    || property == QStringLiteral("illuminance")
+                   || property == QStringLiteral("illumination")
                    || property == QStringLiteral("occupancy")
                    || property == QStringLiteral("motion")
                    || property == QStringLiteral("co2")) {
