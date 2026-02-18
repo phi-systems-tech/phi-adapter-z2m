@@ -1,0 +1,12 @@
+Package: phi-adapter-z2m-dbgsym
+Source: phi-adapter-z2m
+Version: 0.0~git20260218.56b776d-1
+Auto-Built-Package: debug-symbols
+Architecture: arm64
+Maintainer: Marius Schumacher <marius.schumacher@phisys.com>
+Installed-Size: 467
+Depends: phi-adapter-z2m (= 0.0~git20260218.56b776d-1)
+Section: debug
+Priority: optional
+Description: debug symbols for phi-adapter-z2m
+Build-Ids: 143590849dbdeb9132752226754ec425242ad6a8

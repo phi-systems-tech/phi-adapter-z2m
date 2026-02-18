@@ -1,0 +1,15 @@
+Source: phi-adapter-z2m
+Section: libs
+Priority: optional
+Maintainer: Marius Schumacher <marius.schumacher@phisys.com>
+Build-Depends: debhelper-compat (= 13), cmake, pkg-config, qt6-base-dev, libmosquitto-dev, phi-adapter-api-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/phi-systems-tech/phi-adapter-z2m
+
+Package: phi-adapter-z2m
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: mosquitto
+Description: PHI Zigbee2MQTT adapter plugin
+ Plugin module for PHI core to integrate Zigbee2MQTT via MQTT.
