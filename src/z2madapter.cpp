@@ -7,6 +7,7 @@
 #include <QLoggingCategory>
 #include <QSet>
 #include <QtGlobal>
+#include <QStringList>
 
 #include "mqttclient.h"
 
@@ -17,6 +18,16 @@ namespace {
 constexpr int kDefaultPort = 1883;
 constexpr int kAccessState = 0b001;
 constexpr int kAccessSet = 0b010;
+
+phicore::ChannelFlags forceReadOnly(phicore::ChannelFlags flags)
+{
+    if (flags.testFlag(phicore::ChannelFlag::ChannelFlagWritable))
+        flags ^= phicore::ChannelFlag::ChannelFlagWritable;
+    flags |= phicore::ChannelFlag::ChannelFlagReadable
+        | phicore::ChannelFlag::ChannelFlagReportable
+        | phicore::ChannelFlag::ChannelFlagRetained;
+    return flags;
+}
 
 QString enumLabelFor(const QString &enumName, int value)
 {
@@ -181,6 +192,13 @@ void Z2mAdapter::stop()
 {
     stopReconnectTimer();
     disconnectFromBroker();
+    for (auto it = m_postSetRefreshTimers.begin(); it != m_postSetRefreshTimers.end(); ++it) {
+        if (it.value()) {
+            it.value()->stop();
+            it.value()->deleteLater();
+        }
+    }
+    m_postSetRefreshTimers.clear();
     if (m_client) {
         m_client->deleteLater();
         m_client = nullptr;
@@ -270,6 +288,26 @@ void Z2mAdapter::updateChannelState(const QString &deviceExternalId,
         emit cmdResult(response);
         return;
     }
+
+    // Debounced post-set refresh to read back all reported channels.
+    QTimer *refreshTimer = m_postSetRefreshTimers.value(mqttId);
+    if (!refreshTimer) {
+        refreshTimer = new QTimer(this);
+        refreshTimer->setSingleShot(true);
+        m_postSetRefreshTimers.insert(mqttId, refreshTimer);
+        connect(refreshTimer, &QTimer::timeout, this, [this, mqttId]() {
+            if (!m_client || m_client->state() != MqttClient::State::Connected)
+                return;
+            const QString topic = QStringLiteral("%1/%2/get").arg(m_baseTopic, mqttId);
+            const qint32 msgId = m_client->publish(topic, QByteArrayLiteral("{}"));
+            if (msgId < 0) {
+                qCWarning(adapterLog) << "Z2M post-set refresh publish failed for" << mqttId;
+            } else {
+                qCInfo(adapterLog) << "Z2M post-set refresh requested for" << mqttId;
+            }
+        });
+    }
+    refreshTimer->start(1000);
 
     response.status = CmdStatus::Success;
     emit cmdResult(response);
@@ -640,11 +678,30 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             || suffix == QStringLiteral("bridge/response/devices")) {
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
-            if (err.error != QJsonParseError::NoError || !doc.isArray()) {
+            if (err.error != QJsonParseError::NoError) {
                 qCWarning(adapterLog) << "Z2M: failed to parse bridge/devices payload:" << err.errorString();
                 return;
             }
-            handleBridgeDevicesPayload(doc.array());
+            QJsonArray devices;
+            if (doc.isArray()) {
+                devices = doc.array();
+            } else if (doc.isObject()) {
+                const QJsonObject obj = doc.object();
+                const QJsonValue data = obj.value(QStringLiteral("data"));
+                if (data.isArray())
+                    devices = data.toArray();
+                else if (obj.value(QStringLiteral("status")).toString().trimmed().toLower() == QStringLiteral("ok")
+                         && obj.contains(QStringLiteral("result"))
+                         && obj.value(QStringLiteral("result")).isArray()) {
+                    devices = obj.value(QStringLiteral("result")).toArray();
+                }
+            }
+            if (devices.isEmpty()) {
+                qCWarning(adapterLog) << "Z2M: bridge/devices payload has no device array";
+                return;
+            }
+            const bool fullSnapshot = (suffix == QStringLiteral("bridge/devices"));
+            handleBridgeDevicesPayload(devices, fullSnapshot);
         }
         return;
     }
@@ -689,7 +746,7 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
     handleDeviceStatePayload(suffix, doc.object(), QDateTime::currentMSecsSinceEpoch());
 }
 
-void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices)
+void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices, bool fullSnapshot)
 {
     qCInfo(adapterLog) << "Z2M bridge/devices payload count:" << devices.size();
     QSet<QString> seen;
@@ -843,16 +900,18 @@ void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices)
         }
     }
 
-    auto it = m_devices.begin();
-    while (it != m_devices.end()) {
-        if (!seen.contains(it.key())) {
-            emit deviceRemoved(it.value().device.id);
-            if (!it.value().device.id.isEmpty())
-                m_mqttByExternal.remove(it.value().device.id);
-            it = m_devices.erase(it);
-            continue;
+    if (fullSnapshot) {
+        auto it = m_devices.begin();
+        while (it != m_devices.end()) {
+            if (!seen.contains(it.key())) {
+                emit deviceRemoved(it.value().device.id);
+                if (!it.value().device.id.isEmpty())
+                    m_mqttByExternal.remove(it.value().device.id);
+                it = m_devices.erase(it);
+                continue;
+            }
+            ++it;
         }
-        ++it;
     }
 
     if (m_pendingFullSync) {
@@ -1387,6 +1446,16 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     const QString property = expose.value(QStringLiteral("property")).toString().trimmed();
     if (property.isEmpty())
         return;
+    const QString propLower = property.toLower();
+    const bool isMinMaxHelper =
+        propLower == QStringLiteral("min")
+        || propLower == QStringLiteral("max")
+        || propLower.startsWith(QStringLiteral("min_"))
+        || propLower.startsWith(QStringLiteral("max_"))
+        || propLower.endsWith(QStringLiteral("_min"))
+        || propLower.endsWith(QStringLiteral("_max"));
+    if (isMinMaxHelper)
+        return;
 
     QString endpoint;
     if (expose.value(QStringLiteral("endpoint")).isString())
@@ -1463,6 +1532,52 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     const int access = expose.value(QStringLiteral("access")).toInt(kAccessState);
     channel.flags = flagsFromAccess(access);
 
+    if (entry.device.deviceClass == DeviceClass::Sensor) {
+        const auto isSensorMeasurementKind = [](ChannelKind kind) {
+            switch (kind) {
+            case ChannelKind::Temperature:
+            case ChannelKind::Humidity:
+            case ChannelKind::Illuminance:
+            case ChannelKind::CO2:
+            case ChannelKind::Power:
+            case ChannelKind::Voltage:
+            case ChannelKind::Current:
+            case ChannelKind::Energy:
+            case ChannelKind::Battery:
+            case ChannelKind::Motion:
+            case ChannelKind::Tamper:
+            case ChannelKind::AmbientLightLevel:
+            case ChannelKind::LinkQuality:
+            case ChannelKind::SignalStrength:
+            case ChannelKind::ButtonEvent:
+                return true;
+            default:
+                return false;
+            }
+        };
+        const QStringList writableSensorConfigTokens = {
+            QStringLiteral("calibration"),
+            QStringLiteral("sensitivity"),
+            QStringLiteral("threshold"),
+            QStringLiteral("alarm"),
+            QStringLiteral("keep_time"),
+            QStringLiteral("interval"),
+            QStringLiteral("unit"),
+            QStringLiteral("mode")
+        };
+        bool sensorConfigWritable = false;
+        for (const QString &token : writableSensorConfigTokens) {
+            if (propLower.contains(token)) {
+                sensorConfigWritable = true;
+                break;
+            }
+        }
+        if (isSensorMeasurementKind(channel.kind))
+            channel.flags = forceReadOnly(channel.flags);
+        if (channel.kind == ChannelKind::Unknown && !sensorConfigWritable)
+            channel.flags = forceReadOnly(channel.flags);
+    }
+
     double rawMin = expose.value(QStringLiteral("value_min")).toDouble(0.0);
     double rawMax = expose.value(QStringLiteral("value_max")).toDouble(0.0);
     const double rawStep = expose.value(QStringLiteral("value_step")).toDouble(1.0);
@@ -1508,6 +1623,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
         QStringList rawKeys;
         rawKeys.reserve(values.size());
         QHash<QString, int> normalizedMap;
+        bool allNumericEnumValues = !values.isEmpty();
         for (const QJsonValue &val : values) {
             const QString key = val.isString()
                 ? val.toString()
@@ -1515,6 +1631,10 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
             if (key.isEmpty())
                 continue;
             rawKeys.push_back(key);
+            bool numericOk = false;
+            key.toInt(&numericOk);
+            if (!numericOk)
+                allNumericEnumValues = false;
             if (!enumName.isEmpty()) {
                 if (isKnownEnumName(enumName, "RockerMode")) {
                     if (const auto mapped = mapRockerMode(key)) {
@@ -1532,7 +1652,17 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
         for (auto it = normalizedMap.begin(); it != normalizedMap.end(); ++it) {
             enumMapObj.insert(it.key(), it.value());
         }
-        const QHash<QString, int> fallbackMap = buildStableEnumMap(rawKeys, enumMapObj);
+        QHash<QString, int> fallbackMap;
+        if (allNumericEnumValues) {
+            for (const QString &key : rawKeys) {
+                bool numericOk = false;
+                const int numeric = key.toInt(&numericOk);
+                if (numericOk)
+                    fallbackMap.insert(key, numeric);
+            }
+        } else {
+            fallbackMap = buildStableEnumMap(rawKeys, enumMapObj);
+        }
         if (!enumName.isEmpty())
             channel.meta.insert(QStringLiteral("enumName"), enumName);
         if (!fallbackMap.isEmpty()) {

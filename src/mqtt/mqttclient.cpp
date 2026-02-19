@@ -209,26 +209,22 @@ private:
 
     void ensureLoop()
     {
-        if (!m_loopTimer) {
-            m_loopTimer = new QTimer(this);
-            m_loopTimer->setInterval(10);
-            connect(m_loopTimer, &QTimer::timeout, this, [this]() {
-                if (!m_mosq)
-                    return;
-                const int rc = mosquitto_loop(m_mosq, 0, 1);
-                if (rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_NO_CONN)
-                    return;
-                emit errorOccurred(rc, QStringLiteral("MQTT loop error"));
-            });
+        if (!m_mosq || m_loopRunning)
+            return;
+        const int rc = mosquitto_loop_start(m_mosq);
+        if (rc != MOSQ_ERR_SUCCESS) {
+            emit errorOccurred(rc, QStringLiteral("MQTT loop_start failed"));
+            return;
         }
-        if (!m_loopTimer->isActive())
-            m_loopTimer->start();
+        m_loopRunning = true;
     }
 
     void stopLoop()
     {
-        if (m_loopTimer)
-            m_loopTimer->stop();
+        if (!m_mosq || !m_loopRunning)
+            return;
+        mosquitto_loop_stop(m_mosq, false);
+        m_loopRunning = false;
     }
 
     void cleanup()
@@ -250,7 +246,7 @@ private:
 
     MosquittoRuntime m_runtime;
     struct mosquitto *m_mosq = nullptr;
-    QTimer *m_loopTimer = nullptr;
+    bool m_loopRunning = false;
 
     QString m_clientId;
     QString m_hostname;

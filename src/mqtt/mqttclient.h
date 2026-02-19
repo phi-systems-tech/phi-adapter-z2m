@@ -3,7 +3,6 @@
 #include <QByteArray>
 #include <QObject>
 #include <QThread>
-#include <QTimer>
 
 namespace phicore {
 

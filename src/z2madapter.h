@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 
 #include "mqttclient.h"
@@ -67,7 +68,7 @@ private:
         QString mqttId;
         ChannelList channels;
         QHash<QString, Z2mChannelBinding> bindingsByChannel;
-        QHash<QString, QString> channelByProperty;
+        QMultiHash<QString, QString> channelByProperty;
     };
 
     void setConnected(bool connected);
@@ -80,7 +81,7 @@ private:
     void ensureSubscriptions();
 
     void handleMqttMessage(const QByteArray &message, const QString &topic);
-    void handleBridgeDevicesPayload(const QJsonArray &devices);
+    void handleBridgeDevicesPayload(const QJsonArray &devices, bool fullSnapshot);
     void handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs);
     void handleDeviceStatePayload(const QString &deviceId, const QJsonObject &payload, qint64 tsMs);
     void handleAvailabilityPayload(const QString &deviceId, const QString &payload, qint64 tsMs);
@@ -119,6 +120,7 @@ private:
     QHash<QString, QString> m_mqttByExternal;
     QHash<QString, PendingRename> m_pendingRename;
     QHash<QString, QJsonObject> m_pendingStatePayloads;
+    QHash<QString, QPointer<QTimer>> m_postSetRefreshTimers;
     QString m_coordinatorId;
     QJsonObject m_pendingBridgeInfo;
 };

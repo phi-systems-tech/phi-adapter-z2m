@@ -36,6 +36,21 @@ Provides MQTT bridge integration between Zigbee2MQTT and phi-core.
 - Bridge/device topic synchronization
 - Logging category `phi-core.adapters.z2m`
 
+### Adapter-Dev Guideline: Enum Mapping
+
+Use this rule for all adapter implementations:
+
+- Numeric enum values:
+  - Keep the real numeric values from the device/protocol (do not normalize to `1..N`).
+  - Example: if a device exposes `["10","30","60"]`, the channel values must be `10`, `30`, `60`.
+- Textual enum values:
+  - Map to stable internal values only when needed for cross-device normalization.
+  - Preserve raw text mapping metadata so write-back can send the original raw value.
+
+Reason:
+- Keeps UI preselection and automations aligned with real device semantics.
+- Avoids ambiguity when different devices expose different numeric ranges.
+
 ### Runtime Requirements
 
 - phi-core with plugin loading enabled
