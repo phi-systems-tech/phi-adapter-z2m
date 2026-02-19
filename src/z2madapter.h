@@ -25,6 +25,7 @@ protected:
     bool start(QString &errorString) override;
     void stop() override;
     void adapterConfigUpdated() override;
+    void updateStaticConfig(const QJsonObject &config) override;
     void requestFullSync() override;
     void invokeAdapterAction(const QString &actionId,
                              const QJsonObject &params,
@@ -59,6 +60,8 @@ private:
         QString colorMode;
         bool scalePercent = false;
         bool isAvailability = false;
+        int actionButtonId = 0;
+        bool actionIsDial = false;
         QHash<QString, int> enumRawToValue;
         QHash<int, QString> enumValueToRaw;
     };
@@ -89,10 +92,19 @@ private:
     Z2mDeviceEntry buildDeviceEntry(const QJsonObject &obj) const;
     void collectExposeEntries(const QJsonValue &value, QList<QJsonObject> &out) const;
     void addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry &entry) const;
+    bool isPropertySuppressed(const QString &property, const Z2mDeviceEntry &entry) const;
     ChannelFlags flagsFromAccess(int access) const;
     QString labelFromProperty(const QString &property, const QString &fallback) const;
     DeviceClass inferDeviceClass(const QList<QJsonObject> &exposes) const;
     ButtonEventCode actionToButtonEvent(const QString &action) const;
+    void handleButtonShortPressRelease(const QString &pressKey,
+                                       const QString &externalId,
+                                       const QString &channelId,
+                                       qint64 tsMs);
+    void finalizePendingButtonShortPress(const QString &pressKey,
+                                         const QString &externalId,
+                                         const QString &channelId,
+                                         qint64 tsMs = 0);
 
     bool publishCommand(const QString &deviceId,
                         const QJsonObject &payload,
@@ -116,11 +128,27 @@ private:
     bool m_pendingFullSync = false;
     int m_retryIntervalMs = 10000;
     QString m_baseTopic = QStringLiteral("zigbee2mqtt");
+    QJsonObject m_staticConfig;
+    QStringList m_suppressedPropertyPrefixes;
+    QHash<QString, QStringList> m_suppressedPropertyPrefixesByModel;
+    QHash<QString, QStringList> m_suppressedPropertyPrefixesByModelId;
+    QHash<QString, QStringList> m_allowedPropertyPrefixesByModel;
+    QHash<QString, QStringList> m_allowedPropertyPrefixesByModelId;
     QHash<QString, Z2mDeviceEntry> m_devices;
     QHash<QString, QString> m_mqttByExternal;
     QHash<QString, PendingRename> m_pendingRename;
     QHash<QString, QJsonObject> m_pendingStatePayloads;
     QHash<QString, QPointer<QTimer>> m_postSetRefreshTimers;
+    QHash<QString, QPointer<QTimer>> m_dialResetTimers;
+    QHash<QString, int> m_lastDialValueByChannel;
+    QHash<QString, int> m_pendingDialDirectionByChannel;
+    QHash<QString, qint64> m_pendingDialDirectionTsByChannel;
+    QHash<QString, qint64> m_recentActionTs;
+    QHash<QString, QPointer<QTimer>> m_buttonMultiPressTimers;
+    QHash<QString, int> m_buttonMultiPressCounts;
+    QHash<QString, qint64> m_buttonMultiPressLastTs;
+    QHash<QString, int> m_buttonLastEventCode;
+    QHash<QString, qint64> m_buttonLastEventTs;
     QString m_coordinatorId;
     QJsonObject m_pendingBridgeInfo;
 };

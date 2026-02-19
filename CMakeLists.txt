@@ -85,6 +85,21 @@ target_link_libraries(phi_adapter_z2m
         mosquitto::mosquitto
 )
 
+set_target_properties(phi_adapter_z2m PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/adapters"
+)
+
+add_custom_command(
+    TARGET phi_adapter_z2m POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/z2m-config.json"
+        "$<TARGET_FILE_DIR:phi_adapter_z2m>/z2m-config.json"
+)
+
 install(TARGETS phi_adapter_z2m
     LIBRARY DESTINATION lib/phi/plugins/adapters
+)
+
+install(FILES z2m-config.json
+    DESTINATION lib/phi/plugins/adapters
 )

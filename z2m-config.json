@@ -1,0 +1,11 @@
+{
+  "suppressedPropertyPrefixes": [],
+  "suppressedPropertyPrefixesByModel": {},
+  "suppressedPropertyPrefixesByModelId": {
+    "RDM002": [
+      "brightness"
+    ]
+  },
+  "allowedPropertyPrefixesByModel": {},
+  "allowedPropertyPrefixesByModelId": {}
+}

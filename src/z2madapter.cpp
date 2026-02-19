@@ -5,9 +5,11 @@
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QLoggingCategory>
+#include <QRegularExpression>
 #include <QSet>
 #include <QtGlobal>
 #include <QStringList>
+#include <algorithm>
 
 #include "mqttclient.h"
 
@@ -18,6 +20,11 @@ namespace {
 constexpr int kDefaultPort = 1883;
 constexpr int kAccessState = 0b001;
 constexpr int kAccessSet = 0b010;
+constexpr int kButtonMultiPressWindowMs = 1200;
+constexpr int kButtonMultiPressResetGapMs = 500;
+constexpr int kActionDuplicateWindowMs = 120;
+constexpr int kLongPressRepeatWindowMs = 800;
+constexpr int kDialDirectionCacheMs = 1500;
 
 phicore::ChannelFlags forceReadOnly(phicore::ChannelFlags flags)
 {
@@ -67,6 +74,231 @@ QString enumLabelFor(const QString &enumName, int value)
 bool isKnownEnumName(const QString &name, const char *enumName)
 {
     return name.compare(QString::fromLatin1(enumName), Qt::CaseInsensitive) == 0;
+}
+
+QSet<int> extractActionButtonIds(const QStringList &actions)
+{
+    QSet<int> ids;
+    for (const QString &rawAction : actions) {
+        const QString action = rawAction.trimmed().toLower();
+        if (action.isEmpty())
+            continue;
+        const QStringList tokens = action.split(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                                                Qt::SkipEmptyParts);
+        for (int i = 0; i < tokens.size(); ++i) {
+            const QString &token = tokens.at(i);
+            bool ok = false;
+            const int numeric = token.toInt(&ok);
+            if (ok && numeric > 0 && numeric <= 16) {
+                ids.insert(numeric);
+                break;
+            }
+            if (token == QStringLiteral("button") && i + 1 < tokens.size()) {
+                const int nextNumeric = tokens.at(i + 1).toInt(&ok);
+                if (ok && nextNumeric > 0 && nextNumeric <= 16) {
+                    ids.insert(nextNumeric);
+                    break;
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+int extractActionButtonId(const QString &rawAction)
+{
+    const QString action = rawAction.trimmed().toLower();
+    if (action.isEmpty())
+        return 0;
+    const QStringList tokens = action.split(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                                            Qt::SkipEmptyParts);
+    for (int i = 0; i < tokens.size(); ++i) {
+        const QString &token = tokens.at(i);
+        bool ok = false;
+        const int numeric = token.toInt(&ok);
+        if (ok && numeric > 0 && numeric <= 16)
+            return numeric;
+        if (token == QStringLiteral("button") && i + 1 < tokens.size()) {
+            const int nextNumeric = tokens.at(i + 1).toInt(&ok);
+            if (ok && nextNumeric > 0 && nextNumeric <= 16)
+                return nextNumeric;
+        }
+    }
+    return 0;
+}
+
+bool isDialAction(const QString &rawAction)
+{
+    const QString action = rawAction.trimmed().toLower();
+    if (action.isEmpty())
+        return false;
+    return action.contains(QStringLiteral("rotate"))
+        || action.contains(QStringLiteral("rotation"))
+        || action.contains(QStringLiteral("dial"))
+        || action.contains(QStringLiteral("brightness_step"))
+        || action.contains(QStringLiteral("brightness_move"));
+}
+
+int parseDialDelta(const QString &rawAction, const QJsonObject &payload)
+{
+    const QString action = rawAction.trimmed().toLower();
+    int magnitude = 1;
+    bool hasMagnitudeField = false;
+    bool magnitudeFromField = false;
+    const QStringList keys = {
+        QStringLiteral("action_step_size"),
+        QStringLiteral("action_step"),
+        QStringLiteral("step_size"),
+        QStringLiteral("step"),
+        QStringLiteral("rotation"),
+        QStringLiteral("angle")
+    };
+    for (const QString &key : keys) {
+        if (!payload.contains(key))
+            continue;
+        hasMagnitudeField = true;
+        bool ok = false;
+        const int parsed = qRound(payload.value(key).toDouble(0.0));
+        if (parsed != 0) {
+            magnitude = qAbs(parsed);
+            magnitudeFromField = true;
+            ok = true;
+        }
+        if (ok)
+            break;
+    }
+
+    const QStringList tokens = action.split(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                                            Qt::SkipEmptyParts);
+    for (int i = tokens.size() - 1; i >= 0; --i) {
+        bool ok = false;
+        const int parsed = tokens.at(i).toInt(&ok);
+        if (ok && parsed != 0) {
+            magnitude = qAbs(parsed);
+            break;
+        }
+    }
+
+    if (hasMagnitudeField && !magnitudeFromField)
+        return 0;
+
+    if (action.contains(QStringLiteral("left"))
+        || action.contains(QStringLiteral("ccw"))
+        || action.contains(QStringLiteral("counterclockwise"))) {
+        return -magnitude;
+    }
+    if (action.contains(QStringLiteral("right"))
+        || action.contains(QStringLiteral("cw"))
+        || action.contains(QStringLiteral("clockwise"))) {
+        return magnitude;
+    }
+    if (action.contains(QStringLiteral("_up")))
+        return magnitude;
+    if (action.contains(QStringLiteral("_down")))
+        return -magnitude;
+    return 0;
+}
+
+int parseDialMagnitude(const QString &rawAction, const QJsonObject &payload)
+{
+    const QString action = rawAction.trimmed().toLower();
+    int magnitude = 1;
+    bool hasMagnitudeField = false;
+    bool magnitudeFromField = false;
+    const QStringList keys = {
+        QStringLiteral("action_step_size"),
+        QStringLiteral("action_step"),
+        QStringLiteral("step_size"),
+        QStringLiteral("step"),
+        QStringLiteral("rotation"),
+        QStringLiteral("angle")
+    };
+    for (const QString &key : keys) {
+        if (!payload.contains(key))
+            continue;
+        hasMagnitudeField = true;
+        const int parsed = qRound(payload.value(key).toDouble(0.0));
+        if (parsed != 0) {
+            magnitude = qAbs(parsed);
+            magnitudeFromField = true;
+            break;
+        }
+    }
+
+    if (hasMagnitudeField && !magnitudeFromField)
+        return 0;
+
+    const QStringList tokens = action.split(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                                            Qt::SkipEmptyParts);
+    for (int i = tokens.size() - 1; i >= 0; --i) {
+        bool ok = false;
+        const int parsed = tokens.at(i).toInt(&ok);
+        if (ok && parsed != 0) {
+            magnitude = qAbs(parsed);
+            break;
+        }
+    }
+
+    return magnitude;
+}
+
+int parseDialDirectionHint(const QString &rawAction, const QJsonObject &payload)
+{
+    const QString action = rawAction.trimmed().toLower();
+    const QStringList tokens = action.split(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                                            Qt::SkipEmptyParts);
+    const auto hasToken = [&tokens](const QString &needle) {
+        return tokens.contains(needle);
+    };
+
+    if (hasToken(QStringLiteral("left"))
+        || hasToken(QStringLiteral("ccw"))
+        || hasToken(QStringLiteral("counterclockwise"))
+        || hasToken(QStringLiteral("down"))) {
+        return -1;
+    }
+    if (hasToken(QStringLiteral("right"))
+        || hasToken(QStringLiteral("cw"))
+        || hasToken(QStringLiteral("clockwise"))
+        || hasToken(QStringLiteral("up"))) {
+        return 1;
+    }
+
+    if (payload.contains(QStringLiteral("action_direction"))) {
+        const int dir = payload.value(QStringLiteral("action_direction")).toInt(0);
+        if (dir == 1)
+            return -1;
+        if (dir == 2)
+            return 1;
+    }
+
+    return 0;
+}
+
+phicore::ButtonEventCode mapActionTypeToButtonEvent(const QString &rawType)
+{
+    const QString value = rawType.trimmed().toLower();
+    if (value.isEmpty())
+        return phicore::ButtonEventCode::None;
+    if (value.contains(QStringLiteral("double")))
+        return phicore::ButtonEventCode::DoublePress;
+    if (value.contains(QStringLiteral("triple")))
+        return phicore::ButtonEventCode::TriplePress;
+    if (value.contains(QStringLiteral("quad")))
+        return phicore::ButtonEventCode::QuadruplePress;
+    if (value.contains(QStringLiteral("quint")))
+        return phicore::ButtonEventCode::QuintuplePress;
+    if (value.contains(QStringLiteral("repeat")))
+        return phicore::ButtonEventCode::Repeat;
+    if (value.contains(QStringLiteral("long_release")) || value.contains(QStringLiteral("hold_release")))
+        return phicore::ButtonEventCode::LongPressRelease;
+    if (value.contains(QStringLiteral("release")))
+        return phicore::ButtonEventCode::ShortPressRelease;
+    if (value.contains(QStringLiteral("hold")) || value.contains(QStringLiteral("long")))
+        return phicore::ButtonEventCode::LongPress;
+    if (value.contains(QStringLiteral("single")) || value.contains(QStringLiteral("press")))
+        return phicore::ButtonEventCode::InitialPress;
+    return phicore::ButtonEventCode::None;
 }
 
 QHash<QString, int> buildStableEnumMap(const QStringList &rawKeys, const QJsonObject &existing)
@@ -123,6 +355,50 @@ std::optional<int> mapSensitivityLevel(const QString &raw)
     if (key == QStringLiteral("max"))
         return static_cast<int>(phicore::SensitivityLevel::Max);
     return std::nullopt;
+}
+
+QStringList readStringList(const QJsonValue &value)
+{
+    QStringList out;
+    if (!value.isArray())
+        return out;
+    const QJsonArray arr = value.toArray();
+    out.reserve(arr.size());
+    for (const QJsonValue &item : arr) {
+        if (!item.isString())
+            continue;
+        const QString text = item.toString().trimmed();
+        if (text.isEmpty())
+            continue;
+        out.push_back(text);
+    }
+    return out;
+}
+
+QHash<QString, QStringList> readStringListMap(const QJsonObject &root, const QString &key)
+{
+    QHash<QString, QStringList> out;
+    const QJsonObject obj = root.value(key).toObject();
+    for (auto it = obj.begin(); it != obj.end(); ++it) {
+        const QString mapKey = it.key().trimmed();
+        if (mapKey.isEmpty())
+            continue;
+        const QStringList values = readStringList(it.value());
+        if (!values.isEmpty())
+            out.insert(mapKey, values);
+    }
+    return out;
+}
+
+bool startsWithAnyPrefix(const QString &property, const QStringList &prefixes)
+{
+    for (const QString &prefix : prefixes) {
+        if (prefix.isEmpty())
+            continue;
+        if (property.startsWith(prefix, Qt::CaseInsensitive))
+            return true;
+    }
+    return false;
 }
 
 }
@@ -199,6 +475,28 @@ void Z2mAdapter::stop()
         }
     }
     m_postSetRefreshTimers.clear();
+    for (auto it = m_dialResetTimers.begin(); it != m_dialResetTimers.end(); ++it) {
+        if (it.value()) {
+            it.value()->stop();
+            it.value()->deleteLater();
+        }
+    }
+    m_dialResetTimers.clear();
+    m_lastDialValueByChannel.clear();
+    m_pendingDialDirectionByChannel.clear();
+    m_pendingDialDirectionTsByChannel.clear();
+    m_recentActionTs.clear();
+    for (auto it = m_buttonMultiPressTimers.begin(); it != m_buttonMultiPressTimers.end(); ++it) {
+        if (it.value()) {
+            it.value()->stop();
+            it.value()->deleteLater();
+        }
+    }
+    m_buttonMultiPressTimers.clear();
+    m_buttonMultiPressCounts.clear();
+    m_buttonMultiPressLastTs.clear();
+    m_buttonLastEventCode.clear();
+    m_buttonLastEventTs.clear();
     if (m_client) {
         m_client->deleteLater();
         m_client = nullptr;
@@ -212,6 +510,21 @@ void Z2mAdapter::adapterConfigUpdated()
     disconnectFromBroker();
     applyConfig();
     connectToBroker();
+}
+
+void Z2mAdapter::updateStaticConfig(const QJsonObject &config)
+{
+    m_staticConfig = config;
+    m_suppressedPropertyPrefixes = readStringList(
+        config.value(QStringLiteral("suppressedPropertyPrefixes")));
+    m_suppressedPropertyPrefixesByModel = readStringListMap(
+        config, QStringLiteral("suppressedPropertyPrefixesByModel"));
+    m_suppressedPropertyPrefixesByModelId = readStringListMap(
+        config, QStringLiteral("suppressedPropertyPrefixesByModelId"));
+    m_allowedPropertyPrefixesByModel = readStringListMap(
+        config, QStringLiteral("allowedPropertyPrefixesByModel"));
+    m_allowedPropertyPrefixesByModelId = readStringListMap(
+        config, QStringLiteral("allowedPropertyPrefixesByModelId"));
 }
 
 void Z2mAdapter::requestFullSync()
@@ -728,6 +1041,32 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
     if (suffix.endsWith(QStringLiteral("/get")) || suffix.endsWith(QStringLiteral("/set"))) {
         return;
     }
+    if (suffix.endsWith(QStringLiteral("/action"))) {
+        const int slashIndex = suffix.indexOf(QLatin1Char('/'));
+        if (slashIndex <= 0)
+            return;
+        const QString deviceId = suffix.left(slashIndex);
+        QJsonObject payloadObj;
+        const QString payloadText = QString::fromUtf8(message).trimmed();
+        if (payloadText.startsWith(QLatin1Char('{'))) {
+            QJsonParseError err;
+            const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
+            if (err.error == QJsonParseError::NoError && doc.isObject()) {
+                payloadObj = doc.object();
+            } else if (!payloadText.isEmpty()) {
+                payloadObj.insert(QStringLiteral("action"), payloadText);
+            }
+        } else if (!payloadText.isEmpty()) {
+            payloadObj.insert(QStringLiteral("action"), payloadText);
+        }
+        if (!payloadObj.isEmpty()) {
+            payloadObj.insert(QStringLiteral("_phi_action_topic"), true);
+            qCInfo(adapterLog).noquote()
+                << "Z2M action payload for" << deviceId << ":" << payloadText;
+            handleDeviceStatePayload(deviceId, payloadObj, QDateTime::currentMSecsSinceEpoch());
+        }
+        return;
+    }
     if (suffix.contains(QLatin1Char('/'))) {
         qCInfo(adapterLog).noquote()
             << "Z2M payload ignored for topic" << suffix << ":" << QString::fromUtf8(message).trimmed();
@@ -1028,6 +1367,151 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
             continue;
 
         QVariant outValue;
+        if (binding.property == QStringLiteral("action") && value.isString()) {
+            const QString actionRaw = value.toString();
+            const QString actionNorm = actionRaw.trimmed().toLower();
+            if (binding.actionIsDial) {
+                const QString timerKey = externalId + QStringLiteral(":") + binding.channelId;
+                if (payload.value(QStringLiteral("_phi_action_topic")).toBool(false)) {
+                    const int directionHint = parseDialDirectionHint(actionRaw, payload);
+                    if (directionHint != 0) {
+                        m_pendingDialDirectionByChannel.insert(timerKey, directionHint);
+                        m_pendingDialDirectionTsByChannel.insert(timerKey, tsMs);
+                    }
+                    continue;
+                }
+                if (!isDialAction(actionRaw))
+                    continue;
+                const int magnitude = parseDialMagnitude(actionRaw, payload);
+                if (magnitude <= 0)
+                    continue;
+                int sign = parseDialDirectionHint(actionRaw, payload);
+
+                const int cachedDir = m_pendingDialDirectionByChannel.value(timerKey, 0);
+                const qint64 cachedTs = m_pendingDialDirectionTsByChannel.value(timerKey, 0);
+                if (sign == 0 && cachedDir != 0 && cachedTs > 0 && (tsMs - cachedTs) <= kDialDirectionCacheMs) {
+                    sign = cachedDir;
+                    m_pendingDialDirectionByChannel.remove(timerKey);
+                    m_pendingDialDirectionTsByChannel.remove(timerKey);
+                }
+                if (sign == 0)
+                    sign = 1;
+
+                outValue = sign * magnitude;
+            } else {
+                if (!actionNorm.isEmpty()) {
+                    const QString actionKey = externalId
+                        + QStringLiteral(":")
+                        + binding.channelId
+                        + QStringLiteral(":")
+                        + actionNorm;
+                    const qint64 lastActionTs = m_recentActionTs.value(actionKey, 0);
+                    if (lastActionTs > 0 && (tsMs - lastActionTs) <= kActionDuplicateWindowMs)
+                        continue;
+                    m_recentActionTs.insert(actionKey, tsMs);
+                    if (m_recentActionTs.size() > 512) {
+                        const qint64 minTs = tsMs - 10000;
+                        for (auto rit = m_recentActionTs.begin(); rit != m_recentActionTs.end();) {
+                            if (rit.value() < minTs)
+                                rit = m_recentActionTs.erase(rit);
+                            else
+                                ++rit;
+                        }
+                    }
+                }
+                const int actionButtonId = extractActionButtonId(actionRaw);
+                if (binding.actionButtonId > 0 && actionButtonId > 0
+                    && actionButtonId != binding.actionButtonId) {
+                    continue;
+                }
+                if (binding.actionButtonId > 0 && actionButtonId == 0)
+                    continue;
+                ButtonEventCode code = actionToButtonEvent(actionRaw);
+                if (code == ButtonEventCode::None) {
+                    const QJsonValue actionTypeVal = payload.value(QStringLiteral("action_type"));
+                    if (actionTypeVal.isString())
+                        code = mapActionTypeToButtonEvent(actionTypeVal.toString());
+                }
+                if (code == ButtonEventCode::None)
+                    continue;
+                outValue = static_cast<int>(code);
+            }
+        }
+
+        if (outValue.isValid()) {
+            if (binding.kind == ChannelKind::ButtonEvent && !binding.actionIsDial) {
+                int code = outValue.toInt();
+                const QString pressKey = externalId + QStringLiteral(":") + binding.channelId;
+                if (code == static_cast<int>(ButtonEventCode::InitialPress)) {
+                    const qint64 lastTs = m_buttonMultiPressLastTs.value(pressKey, 0);
+                    const int count = m_buttonMultiPressCounts.value(pressKey, 0);
+                    if (count > 0 && lastTs > 0 && (tsMs - lastTs) >= kButtonMultiPressResetGapMs)
+                        finalizePendingButtonShortPress(pressKey, externalId, binding.channelId, lastTs);
+                }
+                if (code == static_cast<int>(ButtonEventCode::ShortPressRelease)) {
+                    handleButtonShortPressRelease(pressKey, externalId, binding.channelId, tsMs);
+                    m_buttonLastEventCode.remove(pressKey);
+                    m_buttonLastEventTs.remove(pressKey);
+                    continue;
+                }
+                if (code == static_cast<int>(ButtonEventCode::LongPress)) {
+                    const int prevCode = m_buttonLastEventCode.value(pressKey, 0);
+                    const qint64 prevTs = m_buttonLastEventTs.value(pressKey, 0);
+                    if ((prevCode == static_cast<int>(ButtonEventCode::LongPress)
+                         || prevCode == static_cast<int>(ButtonEventCode::Repeat))
+                        && prevTs > 0
+                        && (tsMs - prevTs) <= kLongPressRepeatWindowMs) {
+                        code = static_cast<int>(ButtonEventCode::Repeat);
+                        outValue = code;
+                    }
+                }
+                if (code == static_cast<int>(ButtonEventCode::LongPressRelease)) {
+                    m_buttonLastEventCode.remove(pressKey);
+                    m_buttonLastEventTs.remove(pressKey);
+                } else {
+                    m_buttonLastEventCode.insert(pressKey, code);
+                    m_buttonLastEventTs.insert(pressKey, tsMs);
+                }
+            }
+
+            qCInfo(adapterLog).noquote()
+                << "Z2M channel update" << externalId
+                << binding.channelId << "value" << outValue.toString();
+            emit channelStateUpdated(externalId, binding.channelId, outValue, tsMs);
+            if (binding.actionIsDial) {
+                const QString timerKey = externalId + QStringLiteral(":") + binding.channelId;
+                m_lastDialValueByChannel.insert(timerKey, outValue.toInt());
+                QTimer *timer = m_dialResetTimers.value(timerKey);
+                if (!timer) {
+                    timer = new QTimer(this);
+                    timer->setSingleShot(true);
+                    m_dialResetTimers.insert(timerKey, timer);
+                    connect(timer, &QTimer::timeout, this, [this, externalId, channelId = binding.channelId, timerKey]() {
+                        if (m_lastDialValueByChannel.value(timerKey, 0) == 0)
+                            return;
+                        emit channelStateUpdated(externalId, channelId, 0, QDateTime::currentMSecsSinceEpoch());
+                        m_lastDialValueByChannel.insert(timerKey, 0);
+                    });
+                }
+                timer->start(700);
+            } else if (binding.kind == ChannelKind::ButtonEvent) {
+                const int code = outValue.toInt();
+                const QString pressKey = externalId + QStringLiteral(":") + binding.channelId;
+                if (code != static_cast<int>(ButtonEventCode::InitialPress)) {
+                    m_buttonMultiPressCounts.remove(pressKey);
+                    m_buttonMultiPressLastTs.remove(pressKey);
+                    if (code == static_cast<int>(ButtonEventCode::LongPressRelease)) {
+                        m_buttonLastEventCode.remove(pressKey);
+                        m_buttonLastEventTs.remove(pressKey);
+                    }
+                    QTimer *timer = m_buttonMultiPressTimers.value(pressKey);
+                    if (timer)
+                        timer->stop();
+                }
+            }
+            continue;
+        }
+
         switch (binding.kind) {
         case ChannelKind::PowerOnOff: {
             if (value.isBool()) {
@@ -1175,6 +1659,82 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
             << binding.channelId << "value" << outValue.toString();
         emit channelStateUpdated(externalId, binding.channelId, outValue, tsMs);
     }
+}
+
+void Z2mAdapter::handleButtonShortPressRelease(const QString &pressKey,
+                                               const QString &externalId,
+                                               const QString &channelId,
+                                               qint64 tsMs)
+{
+    if (pressKey.isEmpty() || externalId.isEmpty() || channelId.isEmpty())
+        return;
+
+    const qint64 lastTs = m_buttonMultiPressLastTs.value(pressKey, 0);
+    int count = m_buttonMultiPressCounts.value(pressKey, 0);
+    if (lastTs > 0 && (tsMs - lastTs) <= kButtonMultiPressWindowMs)
+        ++count;
+    else
+        count = 1;
+
+    m_buttonMultiPressCounts.insert(pressKey, count);
+    m_buttonMultiPressLastTs.insert(pressKey, tsMs);
+
+    QTimer *timer = m_buttonMultiPressTimers.value(pressKey);
+    if (!timer) {
+        timer = new QTimer(this);
+        timer->setSingleShot(true);
+        m_buttonMultiPressTimers.insert(pressKey, timer);
+        connect(timer, &QTimer::timeout, this, [this, pressKey, externalId, channelId]() {
+            finalizePendingButtonShortPress(pressKey, externalId, channelId);
+        });
+    }
+    timer->start(kButtonMultiPressWindowMs);
+}
+
+void Z2mAdapter::finalizePendingButtonShortPress(const QString &pressKey,
+                                                 const QString &externalId,
+                                                 const QString &channelId,
+                                                 qint64 tsMs)
+{
+    const int count = m_buttonMultiPressCounts.value(pressKey, 0);
+    const qint64 lastTs = m_buttonMultiPressLastTs.value(pressKey, 0);
+    if (count <= 0) {
+        m_buttonMultiPressCounts.remove(pressKey);
+        m_buttonMultiPressLastTs.remove(pressKey);
+        return;
+    }
+
+    QTimer *timer = m_buttonMultiPressTimers.value(pressKey);
+    if (timer)
+        timer->stop();
+
+    const qint64 eventTs = tsMs > 0 ? tsMs : (lastTs > 0 ? lastTs : QDateTime::currentMSecsSinceEpoch());
+    if (count == 1) {
+        emit channelStateUpdated(externalId,
+                                 channelId,
+                                 static_cast<int>(ButtonEventCode::ShortPressRelease),
+                                 eventTs);
+        m_buttonMultiPressCounts.remove(pressKey);
+        m_buttonMultiPressLastTs.remove(pressKey);
+        return;
+    }
+
+    ButtonEventCode aggregated = ButtonEventCode::None;
+    if (count == 2)
+        aggregated = ButtonEventCode::DoublePress;
+    else if (count == 3)
+        aggregated = ButtonEventCode::TriplePress;
+    else if (count == 4)
+        aggregated = ButtonEventCode::QuadruplePress;
+    else
+        aggregated = ButtonEventCode::QuintuplePress;
+
+    emit channelStateUpdated(externalId,
+                             channelId,
+                             static_cast<int>(aggregated),
+                             eventTs);
+    m_buttonMultiPressCounts.remove(pressKey);
+    m_buttonMultiPressLastTs.remove(pressKey);
 }
 
 void Z2mAdapter::handleAvailabilityPayload(const QString &deviceId,
@@ -1446,6 +2006,8 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     const QString property = expose.value(QStringLiteral("property")).toString().trimmed();
     if (property.isEmpty())
         return;
+    if (isPropertySuppressed(property, entry))
+        return;
     const QString propLower = property.toLower();
     const bool isMinMaxHelper =
         propLower == QStringLiteral("min")
@@ -1507,6 +2069,91 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
 
     if (mapIt == kMappings.end() && !(isEnum || isBinary || isNumeric))
         return;
+
+    if (property == QStringLiteral("action") && isEnum) {
+        const int access = expose.value(QStringLiteral("access")).toInt(kAccessState);
+        const ChannelFlags flags = flagsFromAccess(access);
+        const QJsonArray values = expose.value(QStringLiteral("values")).toArray();
+        QStringList actionValues;
+        actionValues.reserve(values.size());
+        bool hasDial = false;
+        for (const QJsonValue &val : values) {
+            const QString action = val.toString().trimmed();
+            if (action.isEmpty())
+                continue;
+            actionValues.push_back(action);
+            if (isDialAction(action))
+                hasDial = true;
+        }
+        const QSet<int> buttonIds = extractActionButtonIds(actionValues);
+        if (buttonIds.isEmpty()) {
+            Channel button;
+            button.id = channelId;
+            button.name = labelFromProperty(property, expose.value(QStringLiteral("label")).toString());
+            button.kind = ChannelKind::ButtonEvent;
+            button.dataType = ChannelDataType::Int;
+            button.flags = flags;
+            entry.channels.push_back(button);
+
+            Z2mChannelBinding binding;
+            binding.channelId = button.id;
+            binding.property = property;
+            binding.kind = button.kind;
+            binding.dataType = button.dataType;
+            binding.flags = button.flags;
+            binding.endpoint = endpoint;
+            entry.bindingsByChannel.insert(button.id, binding);
+            entry.channelByProperty.insert(property, button.id);
+        } else {
+            QList<int> sortedButtonIds = buttonIds.values();
+            std::sort(sortedButtonIds.begin(), sortedButtonIds.end());
+            for (const int buttonId : sortedButtonIds) {
+                Channel button;
+                button.id = QStringLiteral("button%1").arg(buttonId);
+                if (!endpoint.isEmpty())
+                    button.id += QStringLiteral("_") + endpoint;
+                button.name = QStringLiteral("Button %1").arg(buttonId);
+                button.kind = ChannelKind::ButtonEvent;
+                button.dataType = ChannelDataType::Int;
+                button.flags = flags;
+                entry.channels.push_back(button);
+
+                Z2mChannelBinding binding;
+                binding.channelId = button.id;
+                binding.property = property;
+                binding.kind = button.kind;
+                binding.dataType = button.dataType;
+                binding.flags = button.flags;
+                binding.endpoint = endpoint;
+                binding.actionButtonId = buttonId;
+                entry.bindingsByChannel.insert(button.id, binding);
+                entry.channelByProperty.insert(property, button.id);
+            }
+        }
+        if (hasDial) {
+            Channel dial;
+            dial.id = QStringLiteral("dial");
+            if (!endpoint.isEmpty())
+                dial.id += QStringLiteral("_") + endpoint;
+            dial.name = QStringLiteral("Dial Rotation");
+            dial.kind = ChannelKind::RelativeRotation;
+            dial.dataType = ChannelDataType::Int;
+            dial.flags = flags;
+            entry.channels.push_back(dial);
+
+            Z2mChannelBinding dialBinding;
+            dialBinding.channelId = dial.id;
+            dialBinding.property = property;
+            dialBinding.kind = dial.kind;
+            dialBinding.dataType = dial.dataType;
+            dialBinding.flags = dial.flags;
+            dialBinding.endpoint = endpoint;
+            dialBinding.actionIsDial = true;
+            entry.bindingsByChannel.insert(dial.id, dialBinding);
+            entry.channelByProperty.insert(property, dial.id);
+        }
+        return;
+    }
 
     Channel channel;
     channel.id = channelId;
@@ -1766,6 +2413,29 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     entry.channelByProperty.insert(property, channelId);
 }
 
+bool Z2mAdapter::isPropertySuppressed(const QString &property, const Z2mDeviceEntry &entry) const
+{
+    bool suppressed = startsWithAnyPrefix(property, m_suppressedPropertyPrefixes);
+
+    const QString model = entry.device.model.trimmed();
+    if (!model.isEmpty()) {
+        suppressed = suppressed
+            || startsWithAnyPrefix(property, m_suppressedPropertyPrefixesByModel.value(model));
+        if (startsWithAnyPrefix(property, m_allowedPropertyPrefixesByModel.value(model)))
+            suppressed = false;
+    }
+
+    const QString modelId = entry.device.meta.value(QStringLiteral("model_id")).toString().trimmed();
+    if (!modelId.isEmpty()) {
+        suppressed = suppressed
+            || startsWithAnyPrefix(property, m_suppressedPropertyPrefixesByModelId.value(modelId));
+        if (startsWithAnyPrefix(property, m_allowedPropertyPrefixesByModelId.value(modelId)))
+            suppressed = false;
+    }
+
+    return suppressed;
+}
+
 ChannelFlags Z2mAdapter::flagsFromAccess(int access) const
 {
     ChannelFlags flags = ChannelFlag::ChannelFlagNone;
@@ -1849,6 +2519,8 @@ ButtonEventCode Z2mAdapter::actionToButtonEvent(const QString &action) const
         return ButtonEventCode::QuadruplePress;
     if (value.contains(QStringLiteral("quint")))
         return ButtonEventCode::QuintuplePress;
+    if (value.contains(QStringLiteral("repeat")))
+        return ButtonEventCode::Repeat;
     if (value.contains(QStringLiteral("long_release")) || value.contains(QStringLiteral("hold_release")))
         return ButtonEventCode::LongPressRelease;
     if (value.contains(QStringLiteral("release")))
