@@ -2497,12 +2497,15 @@ DeviceClass Z2mAdapter::inferDeviceClass(const QList<QJsonObject> &exposes) cons
             hasSensor = true;
         }
     }
+    // Some remotes (e.g. Hue dial) expose brightness-like action metadata
+    // without being actual lights. If action exists and no switch state is
+    // exposed, prefer Button over Light.
+    if (hasButton && !hasSwitch)
+        return DeviceClass::Button;
     if (hasLight)
         return DeviceClass::Light;
     if (hasSwitch)
         return DeviceClass::Switch;
-    if (hasButton)
-        return DeviceClass::Button;
     if (hasSensor)
         return DeviceClass::Sensor;
     return DeviceClass::Unknown;
