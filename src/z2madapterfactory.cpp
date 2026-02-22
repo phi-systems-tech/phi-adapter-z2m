@@ -4,7 +4,7 @@
 
 #include <QTcpSocket>
 
-namespace phicore {
+namespace phicore::adapter {
 
 static const QByteArray kZ2mIconSvg = QByteArrayLiteral(
     "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#26A69A\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Zigbee2MQTT\">\n"
@@ -269,4 +269,4 @@ AdapterInterface *Z2mAdapterFactory::create(QObject *parent)
     return new Z2mAdapter(parent);
 }
 
-} // namespace phicore
+} // namespace phicore::adapter

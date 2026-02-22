@@ -26,13 +26,13 @@ constexpr int kActionDuplicateWindowMs = 120;
 constexpr int kLongPressRepeatWindowMs = 800;
 constexpr int kDialDirectionCacheMs = 1500;
 
-phicore::ChannelFlags forceReadOnly(phicore::ChannelFlags flags)
+phicore::adapter::ChannelFlags forceReadOnly(phicore::adapter::ChannelFlags flags)
 {
-    if (flags.testFlag(phicore::ChannelFlag::ChannelFlagWritable))
-        flags ^= phicore::ChannelFlag::ChannelFlagWritable;
-    flags |= phicore::ChannelFlag::ChannelFlagReadable
-        | phicore::ChannelFlag::ChannelFlagReportable
-        | phicore::ChannelFlag::ChannelFlagRetained;
+    if (flags.testFlag(phicore::adapter::ChannelFlag::ChannelFlagWritable))
+        flags ^= phicore::adapter::ChannelFlag::ChannelFlagWritable;
+    flags |= phicore::adapter::ChannelFlag::ChannelFlagReadable
+        | phicore::adapter::ChannelFlag::ChannelFlagReportable
+        | phicore::adapter::ChannelFlag::ChannelFlagRetained;
     return flags;
 }
 
@@ -40,13 +40,13 @@ QString enumLabelFor(const QString &enumName, int value)
 {
     if (enumName.compare(QStringLiteral("RockerMode"), Qt::CaseInsensitive) == 0) {
         switch (value) {
-        case static_cast<int>(phicore::RockerMode::SingleRocker):
+        case static_cast<int>(phicore::adapter::RockerMode::SingleRocker):
             return QStringLiteral("SingleRocker");
-        case static_cast<int>(phicore::RockerMode::DualRocker):
+        case static_cast<int>(phicore::adapter::RockerMode::DualRocker):
             return QStringLiteral("DualRocker");
-        case static_cast<int>(phicore::RockerMode::SinglePush):
+        case static_cast<int>(phicore::adapter::RockerMode::SinglePush):
             return QStringLiteral("SinglePush");
-        case static_cast<int>(phicore::RockerMode::DualPush):
+        case static_cast<int>(phicore::adapter::RockerMode::DualPush):
             return QStringLiteral("DualPush");
         default:
             return QString();
@@ -54,15 +54,15 @@ QString enumLabelFor(const QString &enumName, int value)
     }
     if (enumName.compare(QStringLiteral("SensitivityLevel"), Qt::CaseInsensitive) == 0) {
         switch (value) {
-        case static_cast<int>(phicore::SensitivityLevel::Low):
+        case static_cast<int>(phicore::adapter::SensitivityLevel::Low):
             return QStringLiteral("Low");
-        case static_cast<int>(phicore::SensitivityLevel::Medium):
+        case static_cast<int>(phicore::adapter::SensitivityLevel::Medium):
             return QStringLiteral("Medium");
-        case static_cast<int>(phicore::SensitivityLevel::High):
+        case static_cast<int>(phicore::adapter::SensitivityLevel::High):
             return QStringLiteral("High");
-        case static_cast<int>(phicore::SensitivityLevel::VeryHigh):
+        case static_cast<int>(phicore::adapter::SensitivityLevel::VeryHigh):
             return QStringLiteral("VeryHigh");
-        case static_cast<int>(phicore::SensitivityLevel::Max):
+        case static_cast<int>(phicore::adapter::SensitivityLevel::Max):
             return QStringLiteral("Max");
         default:
             return QString();
@@ -275,30 +275,30 @@ int parseDialDirectionHint(const QString &rawAction, const QJsonObject &payload)
     return 0;
 }
 
-phicore::ButtonEventCode mapActionTypeToButtonEvent(const QString &rawType)
+phicore::adapter::ButtonEventCode mapActionTypeToButtonEvent(const QString &rawType)
 {
     const QString value = rawType.trimmed().toLower();
     if (value.isEmpty())
-        return phicore::ButtonEventCode::None;
+        return phicore::adapter::ButtonEventCode::None;
     if (value.contains(QStringLiteral("double")))
-        return phicore::ButtonEventCode::DoublePress;
+        return phicore::adapter::ButtonEventCode::DoublePress;
     if (value.contains(QStringLiteral("triple")))
-        return phicore::ButtonEventCode::TriplePress;
+        return phicore::adapter::ButtonEventCode::TriplePress;
     if (value.contains(QStringLiteral("quad")))
-        return phicore::ButtonEventCode::QuadruplePress;
+        return phicore::adapter::ButtonEventCode::QuadruplePress;
     if (value.contains(QStringLiteral("quint")))
-        return phicore::ButtonEventCode::QuintuplePress;
+        return phicore::adapter::ButtonEventCode::QuintuplePress;
     if (value.contains(QStringLiteral("repeat")))
-        return phicore::ButtonEventCode::Repeat;
+        return phicore::adapter::ButtonEventCode::Repeat;
     if (value.contains(QStringLiteral("long_release")) || value.contains(QStringLiteral("hold_release")))
-        return phicore::ButtonEventCode::LongPressRelease;
+        return phicore::adapter::ButtonEventCode::LongPressRelease;
     if (value.contains(QStringLiteral("release")))
-        return phicore::ButtonEventCode::ShortPressRelease;
+        return phicore::adapter::ButtonEventCode::ShortPressRelease;
     if (value.contains(QStringLiteral("hold")) || value.contains(QStringLiteral("long")))
-        return phicore::ButtonEventCode::LongPress;
+        return phicore::adapter::ButtonEventCode::LongPress;
     if (value.contains(QStringLiteral("single")) || value.contains(QStringLiteral("press")))
-        return phicore::ButtonEventCode::InitialPress;
-    return phicore::ButtonEventCode::None;
+        return phicore::adapter::ButtonEventCode::InitialPress;
+    return phicore::adapter::ButtonEventCode::None;
 }
 
 QHash<QString, int> buildStableEnumMap(const QStringList &rawKeys, const QJsonObject &existing)
@@ -331,13 +331,13 @@ std::optional<int> mapRockerMode(const QString &raw)
 {
     const QString key = raw.trimmed().toLower();
     if (key == QStringLiteral("single_rocker") || key == QStringLiteral("singlerocker"))
-        return static_cast<int>(phicore::RockerMode::SingleRocker);
+        return static_cast<int>(phicore::adapter::RockerMode::SingleRocker);
     if (key == QStringLiteral("dual_rocker") || key == QStringLiteral("dualrocker"))
-        return static_cast<int>(phicore::RockerMode::DualRocker);
+        return static_cast<int>(phicore::adapter::RockerMode::DualRocker);
     if (key == QStringLiteral("single_push_button") || key == QStringLiteral("singlepushbutton"))
-        return static_cast<int>(phicore::RockerMode::SinglePush);
+        return static_cast<int>(phicore::adapter::RockerMode::SinglePush);
     if (key == QStringLiteral("dual_push_button") || key == QStringLiteral("dualpushbutton"))
-        return static_cast<int>(phicore::RockerMode::DualPush);
+        return static_cast<int>(phicore::adapter::RockerMode::DualPush);
     return std::nullopt;
 }
 
@@ -345,15 +345,15 @@ std::optional<int> mapSensitivityLevel(const QString &raw)
 {
     const QString key = raw.trimmed().toLower();
     if (key == QStringLiteral("low"))
-        return static_cast<int>(phicore::SensitivityLevel::Low);
+        return static_cast<int>(phicore::adapter::SensitivityLevel::Low);
     if (key == QStringLiteral("medium"))
-        return static_cast<int>(phicore::SensitivityLevel::Medium);
+        return static_cast<int>(phicore::adapter::SensitivityLevel::Medium);
     if (key == QStringLiteral("high"))
-        return static_cast<int>(phicore::SensitivityLevel::High);
+        return static_cast<int>(phicore::adapter::SensitivityLevel::High);
     if (key == QStringLiteral("very_high") || key == QStringLiteral("veryhigh"))
-        return static_cast<int>(phicore::SensitivityLevel::VeryHigh);
+        return static_cast<int>(phicore::adapter::SensitivityLevel::VeryHigh);
     if (key == QStringLiteral("max"))
-        return static_cast<int>(phicore::SensitivityLevel::Max);
+        return static_cast<int>(phicore::adapter::SensitivityLevel::Max);
     return std::nullopt;
 }
 
@@ -403,7 +403,7 @@ bool startsWithAnyPrefix(const QString &property, const QStringList &prefixes)
 
 }
 
-namespace phicore {
+namespace phicore::adapter {
 
 Z2mAdapter::Z2mAdapter(QObject *parent)
     : AdapterInterface(parent)
@@ -422,9 +422,9 @@ bool Z2mAdapter::start(QString &errorString)
     applyConfig();
 
     if (!m_client) {
-        m_client = new MqttClient(this);
+        m_client = new ::phicore::MqttClient(this);
         m_client->setClientId(QStringLiteral("phi-core-z2m-%1").arg(adapter().id));
-        connect(m_client, &MqttClient::connected, this, [this]() {
+        connect(m_client, &::phicore::MqttClient::connected, this, [this]() {
             qCInfo(adapterLog) << "Z2M MQTT connected, subscribing";
             m_mqttConnected = true;
             updateConnectionState();
@@ -433,17 +433,17 @@ bool Z2mAdapter::start(QString &errorString)
             m_client->publish(QStringLiteral("%1/bridge/request/info").arg(m_baseTopic),
                               requestPayload);
         });
-        connect(m_client, &MqttClient::disconnected, this, [this]() {
+        connect(m_client, &::phicore::MqttClient::disconnected, this, [this]() {
             m_mqttConnected = false;
             updateConnectionState();
             scheduleReconnect();
         });
-        connect(m_client, &MqttClient::messageReceived, this,
+        connect(m_client, &::phicore::MqttClient::messageReceived, this,
                 [this](const QByteArray &message, const QString &topic) {
             handleMqttMessage(message, topic);
         });
-        connect(m_client, &MqttClient::errorOccurred, this, [this](int code, const QString &message) {
-            if (m_client->state() == MqttClient::State::Connected)
+        connect(m_client, &::phicore::MqttClient::errorOccurred, this, [this](int code, const QString &message) {
+            if (m_client->state() == ::phicore::MqttClient::State::Connected)
                 return;
             qCWarning(adapterLog) << "Z2M MQTT error:" << code << message;
         });
@@ -531,7 +531,7 @@ void Z2mAdapter::requestFullSync()
 {
     m_pendingFullSync = true;
     qCInfo(adapterLog) << "Z2M requestFullSync() pending=true";
-    if (m_client && m_client->state() == MqttClient::State::Connected) {
+    if (m_client && m_client->state() == ::phicore::MqttClient::State::Connected) {
         const QByteArray requestPayload = QByteArrayLiteral("{}");
         const QString topic = QStringLiteral("%1/bridge/request/devices").arg(m_baseTopic);
         qCInfo(adapterLog) << "Z2M full sync requested via" << topic;
@@ -579,7 +579,7 @@ void Z2mAdapter::updateChannelState(const QString &deviceExternalId,
         return;
     }
 
-    if (!m_connected || !m_client || m_client->state() != MqttClient::State::Connected) {
+    if (!m_connected || !m_client || m_client->state() != ::phicore::MqttClient::State::Connected) {
         response.status = CmdStatus::TemporarilyOffline;
         response.error = QStringLiteral("MQTT broker not connected");
         emit cmdResult(response);
@@ -609,7 +609,7 @@ void Z2mAdapter::updateChannelState(const QString &deviceExternalId,
         refreshTimer->setSingleShot(true);
         m_postSetRefreshTimers.insert(mqttId, refreshTimer);
         connect(refreshTimer, &QTimer::timeout, this, [this, mqttId]() {
-            if (!m_client || m_client->state() != MqttClient::State::Connected)
+            if (!m_client || m_client->state() != ::phicore::MqttClient::State::Connected)
                 return;
             const QString topic = QStringLiteral("%1/%2/get").arg(m_baseTopic, mqttId);
             const qint32 msgId = m_client->publish(topic, QByteArrayLiteral("{}"));
@@ -654,7 +654,7 @@ void Z2mAdapter::updateDeviceName(const QString &deviceId, const QString &name, 
         return;
     }
 
-    if (!m_connected || !m_client || m_client->state() != MqttClient::State::Connected) {
+    if (!m_connected || !m_client || m_client->state() != ::phicore::MqttClient::State::Connected) {
         response.status = CmdStatus::TemporarilyOffline;
         response.error = QStringLiteral("MQTT broker not connected");
         emit cmdResult(response);
@@ -707,7 +707,7 @@ void Z2mAdapter::invokeAdapterAction(const QString &actionId,
         resp.id = cmdId;
     resp.tsMs = QDateTime::currentMSecsSinceEpoch();
 
-    if (!m_client || m_client->state() != MqttClient::State::Connected) {
+    if (!m_client || m_client->state() != ::phicore::MqttClient::State::Connected) {
         resp.status = CmdStatus::Failure;
         resp.error = QStringLiteral("MQTT client not connected.");
         emit actionResult(resp);
@@ -785,7 +785,7 @@ void Z2mAdapter::connectToBroker()
 {
     if (!m_client)
         return;
-    if (m_client->state() == MqttClient::State::Connected || m_client->state() == MqttClient::State::Connecting)
+    if (m_client->state() == ::phicore::MqttClient::State::Connected || m_client->state() == ::phicore::MqttClient::State::Connecting)
         return;
     const QString ip = adapter().ip.trimmed();
     if (ip.isEmpty())
@@ -799,7 +799,7 @@ void Z2mAdapter::disconnectFromBroker()
 {
     if (!m_client)
         return;
-    if (m_client->state() == MqttClient::State::Connected || m_client->state() == MqttClient::State::Connecting)
+    if (m_client->state() == ::phicore::MqttClient::State::Connected || m_client->state() == ::phicore::MqttClient::State::Connecting)
         m_client->disconnectFromHost();
 }
 
@@ -827,7 +827,7 @@ void Z2mAdapter::stopReconnectTimer()
 
 void Z2mAdapter::ensureSubscriptions()
 {
-    if (!m_client || m_client->state() != MqttClient::State::Connected)
+    if (!m_client || m_client->state() != ::phicore::MqttClient::State::Connected)
         return;
     m_client->subscribe(QStringLiteral("%1/#").arg(m_baseTopic));
 }
@@ -1544,12 +1544,12 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
             if (binding.colorMode == QStringLiteral("xy")) {
                 const double x = colorObj.value(QStringLiteral("x")).toDouble();
                 const double y = colorObj.value(QStringLiteral("y")).toDouble();
-                phicore::Color c = phicore::colorFromXy(x, y, 1.0);
+                phicore::adapter::Color c = phicore::adapter::colorFromXy(x, y, 1.0);
                 outValue = QVariant::fromValue(c);
             } else if (binding.colorMode == QStringLiteral("hs")) {
                 const double h = colorObj.value(QStringLiteral("hue")).toDouble(colorObj.value(QStringLiteral("h")).toDouble());
                 const double s = colorObj.value(QStringLiteral("saturation")).toDouble(colorObj.value(QStringLiteral("s")).toDouble());
-                phicore::Color c = phicore::hsvToColor(h, s / 100.0, 1.0);
+                phicore::adapter::Color c = phicore::adapter::hsvToColor(h, s / 100.0, 1.0);
                 outValue = QVariant::fromValue(c);
             }
             break;
@@ -2540,7 +2540,7 @@ bool Z2mAdapter::publishCommand(const QString &deviceId,
                                 const QString &endpoint,
                                 QString &errorString)
 {
-    if (!m_client || m_client->state() != MqttClient::State::Connected) {
+    if (!m_client || m_client->state() != ::phicore::MqttClient::State::Connected) {
         errorString = QStringLiteral("MQTT client not connected.");
         return false;
     }
@@ -2621,20 +2621,20 @@ bool Z2mAdapter::buildCommandPayload(const QString &deviceId,
         break;
     }
     case ChannelKind::ColorRGB: {
-        if (!value.canConvert<phicore::Color>()) {
+        if (!value.canConvert<phicore::adapter::Color>()) {
             errorString = QStringLiteral("Invalid color value.");
             return false;
         }
-        const phicore::Color color = value.value<phicore::Color>();
+        const phicore::adapter::Color color = value.value<phicore::adapter::Color>();
         QJsonObject colorObj;
         if (binding.colorMode == QStringLiteral("xy")) {
             double x = 0.0;
             double y = 0.0;
-            phicore::colorToXy(color, x, y);
+            phicore::adapter::colorToXy(color, x, y);
             colorObj.insert(QStringLiteral("x"), x);
             colorObj.insert(QStringLiteral("y"), y);
         } else {
-            const phicore::Hsv hsv = phicore::colorToHsv(color);
+            const phicore::adapter::Hsv hsv = phicore::adapter::colorToHsv(color);
             colorObj.insert(QStringLiteral("hue"), hsv.hDeg);
             colorObj.insert(QStringLiteral("saturation"), hsv.s * 100.0);
         }
@@ -2722,4 +2722,4 @@ double Z2mAdapter::scaleFromPercent(double percent, double rawMin, double rawMax
     return rawMin + ((rawMax - rawMin) * (clamped / 100.0));
 }
 
-} // namespace phicore
+} // namespace phicore::adapter

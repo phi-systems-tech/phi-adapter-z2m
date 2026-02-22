@@ -11,7 +11,7 @@
 #include "adapterinterface.h"
 #include "color.h"
 
-namespace phicore {
+namespace phicore::adapter {
 
 class Z2mAdapter : public AdapterInterface
 {
@@ -119,7 +119,7 @@ private:
     double scaleToPercent(double raw, double rawMin, double rawMax) const;
     double scaleFromPercent(double percent, double rawMin, double rawMax) const;
 
-    MqttClient *m_client = nullptr;
+    ::phicore::MqttClient *m_client = nullptr;
     QTimer *m_reconnectTimer = nullptr;
     bool m_connected = false;
     bool m_mqttConnected = false;
@@ -153,4 +153,4 @@ private:
     QJsonObject m_pendingBridgeInfo;
 };
 
-} // namespace phicore
+} // namespace phicore::adapter

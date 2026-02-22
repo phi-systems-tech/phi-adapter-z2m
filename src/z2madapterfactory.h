@@ -3,13 +3,13 @@
 
 #include "adapterfactory.h"
 
-namespace phicore {
+namespace phicore::adapter {
 
 class Z2mAdapterFactory : public AdapterFactory
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID PHI_ADAPTER_FACTORY_IID)
-    Q_INTERFACES(phicore::AdapterFactory)
+    Q_INTERFACES(phicore::adapter::AdapterFactory)
 
 public:
     Z2mAdapterFactory(QObject *parent = nullptr) : AdapterFactory(parent) {}
@@ -28,4 +28,4 @@ public:
     AdapterInterface *create(QObject *parent = nullptr) override;
 };
 
-} // namespace phicore
+} // namespace phicore::adapter
