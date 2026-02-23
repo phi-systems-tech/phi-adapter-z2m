@@ -6,6 +6,26 @@
 
 namespace phicore::adapter {
 
+namespace {
+
+void applyDefaultFieldScopes(AdapterConfigSchema &schema)
+{
+    for (AdapterConfigField &field : schema.fields) {
+        const QString scope = field.meta.value(QStringLiteral("scope")).toString().trimmed().toLower();
+        if (scope == QStringLiteral("factory")
+            || scope == QStringLiteral("instance")
+            || scope == QStringLiteral("both")) {
+            continue;
+        }
+        const bool instanceOnly =
+            (static_cast<int>(field.flags) & static_cast<int>(AdapterConfigFieldFlag::InstanceOnly)) != 0;
+        field.meta.insert(QStringLiteral("scope"),
+                          instanceOnly ? QStringLiteral("instance") : QStringLiteral("both"));
+    }
+}
+
+} // namespace
+
 static const QByteArray kZ2mIconSvg = QByteArrayLiteral(
     "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#26A69A\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Zigbee2MQTT\">\n"
     "  <circle cx=\"12\" cy=\"12\" r=\"2\"/>\n"
@@ -34,17 +54,26 @@ AdapterCapabilities Z2mAdapterFactory::capabilities() const
     settings.label = QStringLiteral("Settings");
     settings.description = QStringLiteral("Edit Zigbee2MQTT connection settings.");
     settings.hasForm = true;
+    settings.meta.insert(QStringLiteral("placement"), QStringLiteral("card"));
+    settings.meta.insert(QStringLiteral("kind"), QStringLiteral("open_dialog"));
+    settings.meta.insert(QStringLiteral("requiresAck"), true);
     caps.instanceActions.push_back(settings);
     AdapterActionDescriptor permitJoin;
     permitJoin.id = QStringLiteral("permitJoin");
     permitJoin.label = QStringLiteral("Open pairing (2 min)");
     permitJoin.description = QStringLiteral("Allow new Zigbee devices to join for 2 minutes.");
     permitJoin.cooldownMs = 120000;
+    permitJoin.meta.insert(QStringLiteral("placement"), QStringLiteral("card"));
+    permitJoin.meta.insert(QStringLiteral("kind"), QStringLiteral("command"));
+    permitJoin.meta.insert(QStringLiteral("requiresAck"), true);
     caps.instanceActions.push_back(permitJoin);
     AdapterActionDescriptor restart;
     restart.id = QStringLiteral("restartZ2M");
     restart.label = QStringLiteral("Restart Zigbee2MQTT");
     restart.description = QStringLiteral("Restarts Zigbee2MQTT. Devices may be unavailable briefly.");
+    restart.meta.insert(QStringLiteral("placement"), QStringLiteral("card"));
+    restart.meta.insert(QStringLiteral("kind"), QStringLiteral("command"));
+    restart.meta.insert(QStringLiteral("requiresAck"), true);
     {
         QJsonObject confirm;
         confirm.insert(QStringLiteral("title"), QStringLiteral("Restart Zigbee2MQTT?"));
@@ -104,6 +133,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.placeholder = QStringLiteral("localhost");
         if (!info.host.isEmpty())
             f.defaultValue = info.host;
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -114,6 +144,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("MQTT Port");
         f.description = QStringLiteral("TCP port of the MQTT broker.");
         f.defaultValue = info.port > 0 ? info.port : 1883;
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -125,6 +156,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.description = QStringLiteral("Username for MQTT authentication (optional).");
         if (!info.user.isEmpty())
             f.defaultValue = info.user;
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -135,6 +167,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("MQTT Password");
         f.description = QStringLiteral("Password for MQTT authentication (optional).");
         f.flags       = AdapterConfigFieldFlag::Secret;
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -145,6 +178,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("Base topic");
         f.description = QStringLiteral("Zigbee2MQTT base topic (default: zigbee2mqtt).");
         f.defaultValue = info.meta.value(QStringLiteral("baseTopic")).toString(QStringLiteral("zigbee2mqtt"));
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -155,6 +189,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("Retry interval");
         f.description = QStringLiteral("Reconnect interval while the broker is offline.");
         f.defaultValue = 10000;
+        f.meta.insert(QStringLiteral("parentAction"), QStringLiteral("settings"));
         schema.fields.push_back(f);
     }
 
@@ -237,6 +272,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         schema.fields.push_back(f);
     }
 
+    applyDefaultFieldScopes(schema);
     return schema;
 }
 
