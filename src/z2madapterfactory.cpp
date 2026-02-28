@@ -6,19 +6,6 @@
 
 namespace phicore::adapter {
 
-namespace {
-
-void addFieldByLegacyScope(AdapterConfigSchema &schema, const AdapterConfigField &field)
-{
-    const bool instanceOnly =
-        (static_cast<int>(field.flags) & static_cast<int>(AdapterConfigFieldFlag::InstanceOnly)) != 0;
-    if (!instanceOnly)
-        schema.factory.fields.push_back(field);
-    schema.instance.fields.push_back(field);
-}
-
-} // namespace
-
 static const QByteArray kZ2mIconSvg = QByteArrayLiteral(
     "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#26A69A\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Zigbee2MQTT\">\n"
     "  <circle cx=\"12\" cy=\"12\" r=\"2\"/>\n"
@@ -45,7 +32,7 @@ AdapterCapabilities Z2mAdapterFactory::capabilities() const
     AdapterActionDescriptor settings;
     settings.id = QStringLiteral("settings");
     settings.label = QStringLiteral("Settings");
-    settings.description = QStringLiteral("Edit Zigbee2MQTT connection settings.");
+    settings.description = QStringLiteral("Edit Zigbee2MQTT instance settings.");
     settings.hasForm = true;
     settings.meta.insert(QStringLiteral("placement"), QStringLiteral("card"));
     settings.meta.insert(QStringLiteral("kind"), QStringLiteral("open_dialog"));
@@ -128,8 +115,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.placeholder = QStringLiteral("localhost");
         if (!info.host.isEmpty())
             f.defaultValue = info.host;
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     {
@@ -139,8 +125,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("MQTT Port");
         f.description = QStringLiteral("TCP port of the MQTT broker.");
         f.defaultValue = info.port > 0 ? info.port : 1883;
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     {
@@ -151,8 +136,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.description = QStringLiteral("Username for MQTT authentication (optional).");
         if (!info.user.isEmpty())
             f.defaultValue = info.user;
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     {
@@ -162,8 +146,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("MQTT Password");
         f.description = QStringLiteral("Password for MQTT authentication (optional).");
         f.flags       = AdapterConfigFieldFlag::Secret;
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     {
@@ -173,8 +156,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("Base topic");
         f.description = QStringLiteral("Zigbee2MQTT base topic (default: zigbee2mqtt).");
         f.defaultValue = info.meta.value(QStringLiteral("baseTopic")).toString(QStringLiteral("zigbee2mqtt"));
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     {
@@ -184,8 +166,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.label       = QStringLiteral("Retry interval");
         f.description = QStringLiteral("Reconnect interval while the broker is offline.");
         f.defaultValue = 10000;
-        f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.factory.fields.push_back(f);
     }
 
     const QJsonObject bridgeInfo = info.meta.value(QStringLiteral("bridge_info")).toObject();
@@ -205,7 +186,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.flags = AdapterConfigFieldFlag::ReadOnly | AdapterConfigFieldFlag::InstanceOnly;
         f.parentActionId = QStringLiteral("settings");
         f.defaultValue = value;
-        addFieldByLegacyScope(schema, f);
+        schema.instance.fields.push_back(f);
         return true;
     };
 
@@ -232,7 +213,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         channelField.meta.insert(QStringLiteral("min"), 11);
         channelField.meta.insert(QStringLiteral("max"), 26);
         channelField.meta.insert(QStringLiteral("step"), 1);
-        addFieldByLegacyScope(schema, channelField);
+        schema.instance.fields.push_back(channelField);
         addedInfo = true;
     }
     addedInfo |= addReadOnlyField(QStringLiteral("panId"),
@@ -264,7 +245,7 @@ AdapterConfigSchema Z2mAdapterFactory::configSchema(const Adapter &info) const
         f.flags = AdapterConfigFieldFlag::ReadOnly | AdapterConfigFieldFlag::InstanceOnly;
         f.defaultValue = permitJoin.toBool();
         f.parentActionId = QStringLiteral("settings");
-        addFieldByLegacyScope(schema, f);
+        schema.instance.fields.push_back(f);
     }
 
     return schema;
