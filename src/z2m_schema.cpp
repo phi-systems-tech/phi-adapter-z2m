@@ -72,7 +72,7 @@ QJsonObject section(const QString &title, const QString &description, const QJso
     return out;
 }
 
-QJsonArray baseSchemaFields()
+QJsonArray baseSchemaFields(const QString &parentActionId = QString())
 {
     QJsonArray fields;
 
@@ -84,18 +84,24 @@ QJsonArray baseSchemaFields()
                         QStringLiteral("MQTT Host"),
                         QStringLiteral("IP address or hostname of the MQTT broker."),
                         QJsonValue(QStringLiteral("localhost")),
-                        requiredFlags));
+                        requiredFlags,
+                        parentActionId));
 
     fields.append(field(QStringLiteral("port"),
                         QStringLiteral("Port"),
                         QStringLiteral("MQTT Port"),
                         QStringLiteral("TCP port of the MQTT broker."),
-                        QJsonValue(1883)));
+                        QJsonValue(1883),
+                        {},
+                        parentActionId));
 
     fields.append(field(QStringLiteral("user"),
                         QStringLiteral("String"),
                         QStringLiteral("MQTT Username"),
-                        QStringLiteral("Username for MQTT authentication (optional).")));
+                        QStringLiteral("Username for MQTT authentication (optional)."),
+                        QJsonValue(),
+                        {},
+                        parentActionId));
 
     QJsonArray secretFlags;
     secretFlags.append(QStringLiteral("Secret"));
@@ -104,19 +110,24 @@ QJsonArray baseSchemaFields()
                         QStringLiteral("MQTT Password"),
                         QStringLiteral("Password for MQTT authentication (optional)."),
                         QJsonValue(),
-                        secretFlags));
+                        secretFlags,
+                        parentActionId));
 
     fields.append(field(QStringLiteral("baseTopic"),
                         QStringLiteral("String"),
                         QStringLiteral("Base topic"),
                         QStringLiteral("Zigbee2MQTT base topic (default: zigbee2mqtt)."),
-                        QJsonValue(QStringLiteral("zigbee2mqtt"))));
+                        QJsonValue(QStringLiteral("zigbee2mqtt")),
+                        {},
+                        parentActionId));
 
     fields.append(field(QStringLiteral("retryIntervalMs"),
                         QStringLiteral("Integer"),
                         QStringLiteral("Retry interval"),
                         QStringLiteral("Reconnect interval while the broker is offline."),
-                        QJsonValue(10000)));
+                        QJsonValue(10000),
+                        {},
+                        parentActionId));
 
     return fields;
 }
@@ -260,7 +271,7 @@ phicore::adapter::v1::AdapterCapabilities capabilities()
 phicore::adapter::v1::JsonText configSchemaJson()
 {
     const QJsonArray baseFields = baseSchemaFields();
-    QJsonArray instanceFields = baseFields;
+    QJsonArray instanceFields = baseSchemaFields(QStringLiteral("settings"));
     const QJsonArray settingsFields = instanceSettingsFields();
     for (const QJsonValue &value : settingsFields)
         instanceFields.append(value);
