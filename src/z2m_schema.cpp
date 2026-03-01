@@ -72,7 +72,7 @@ QJsonObject section(const QString &title, const QString &description, const QJso
     return out;
 }
 
-QJsonArray schemaFields()
+QJsonArray baseSchemaFields()
 {
     QJsonArray fields;
 
@@ -117,6 +117,13 @@ QJsonArray schemaFields()
                         QStringLiteral("Retry interval"),
                         QStringLiteral("Reconnect interval while the broker is offline."),
                         QJsonValue(10000)));
+
+    return fields;
+}
+
+QJsonArray instanceSettingsFields()
+{
+    QJsonArray fields;
 
     QJsonArray roFlags;
     roFlags.append(QStringLiteral("ReadOnly"));
@@ -252,17 +259,21 @@ phicore::adapter::v1::AdapterCapabilities capabilities()
 
 phicore::adapter::v1::JsonText configSchemaJson()
 {
-    const QJsonArray fields = schemaFields();
+    const QJsonArray baseFields = baseSchemaFields();
+    QJsonArray instanceFields = baseFields;
+    const QJsonArray settingsFields = instanceSettingsFields();
+    for (const QJsonValue &value : settingsFields)
+        instanceFields.append(value);
 
     QJsonObject schema;
     schema.insert(QStringLiteral("factory"),
                   section(QStringLiteral("Zigbee2MQTT"),
                           QStringLiteral("Configure the MQTT broker used by Zigbee2MQTT."),
-                          fields));
+                          baseFields));
     schema.insert(QStringLiteral("instance"),
                   section(QStringLiteral("Zigbee2MQTT"),
                           QStringLiteral("Configure the MQTT broker used by Zigbee2MQTT."),
-                          fields));
+                          instanceFields));
 
     return QJsonDocument(schema).toJson(QJsonDocument::Compact).toStdString();
 }
