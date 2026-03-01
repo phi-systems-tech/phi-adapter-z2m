@@ -2,7 +2,7 @@
 
 ## Overview
 
-Integrates Zigbee2MQTT via MQTT with phi-core.
+Integrates Zigbee2MQTT via MQTT with phi-core via IPC sidecar.
 
 ## Supported Devices / Systems
 
@@ -53,7 +53,7 @@ Reason:
 
 ### Runtime Requirements
 
-- phi-core with plugin loading enabled
+- phi-core with IPC adapter runtime enabled
 - MQTT broker (for example Mosquitto)
 - Zigbee2MQTT instance
 
@@ -62,11 +62,11 @@ Reason:
 - `cmake`
 - Qt6 modules: `Core`, `Network`
 - `libmosquitto-dev`
-- `phi-adapter-api` (local checkout or installed package)
+- `phi-adapter-sdk` (local checkout or installed package)
 
 ### Configuration
 
-- No dedicated config file in this repository
+- Static adapter config: `z2m-config.json`
 - MQTT host/credentials/topics are configured through phi-core
 
 ### Build
@@ -78,7 +78,7 @@ cmake --build build --parallel
 
 ### Installation
 
-- Build output: `build/libphi_adapter_z2m.so`
+- Build output: `build/plugins/adapters/phi_adapter_z2m_ipc`
 - Deploy to: `/opt/phi/plugins/adapters/`
 
 ### Troubleshooting
