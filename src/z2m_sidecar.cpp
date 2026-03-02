@@ -97,12 +97,24 @@ void Z2mSidecar::onDisconnected()
 void Z2mSidecar::onBootstrap(const sdk::BootstrapRequest &request)
 {
     AdapterSidecar::onBootstrap(request);
-    applyBootstrap(request);
+    m_started = false;
+    m_runtime.stopAdapter();
+
+    std::cerr << "z2m-ipc bootstrap adapterId=" << request.adapterId
+              << " externalId=" << request.adapter.externalId
+              << " pluginType=" << request.adapter.pluginType
+              << '\n';
+}
+
+void Z2mSidecar::onConfigChanged(const sdk::ConfigChangedRequest &request)
+{
+    AdapterSidecar::onConfigChanged(request);
+    applyRuntimeConfig(request);
 
     m_started = false;
     m_runtime.startAdapterAsync();
 
-    std::cerr << "z2m-ipc bootstrap adapterId=" << request.adapterId
+    std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
               << " externalId=" << request.adapter.externalId
               << " pluginType=" << request.adapter.pluginType
               << '\n';
@@ -379,13 +391,13 @@ void Z2mSidecar::wireRuntimeSignals()
                      });
 }
 
-void Z2mSidecar::applyBootstrap(const sdk::BootstrapRequest &request)
+void Z2mSidecar::applyRuntimeConfig(const sdk::ConfigChangedRequest &request)
 {
-    m_bootstrapAdapter = request.adapter;
-    m_bootstrapMeta = parseJsonObject(request.adapter.metaJson);
+    m_runtimeAdapter = request.adapter;
+    m_runtimeMeta = parseJsonObject(request.adapter.metaJson);
     m_staticConfig = parseJsonObject(request.staticConfigJson);
 
-    const runtimeapi::Adapter adapterInfo = fromV1(request.adapter, m_bootstrapMeta);
+    const runtimeapi::Adapter adapterInfo = fromV1(request.adapter, m_runtimeMeta);
     m_runtime.assignAdapter(adapterInfo);
     m_runtime.setStaticConfig(m_staticConfig);
 }

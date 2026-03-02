@@ -139,6 +139,8 @@ QJsonArray instanceSettingsFields()
     QJsonArray roFlags;
     roFlags.append(QStringLiteral("ReadOnly"));
     roFlags.append(QStringLiteral("InstanceOnly"));
+    QJsonArray instanceOnlyFlags;
+    instanceOnlyFlags.append(QStringLiteral("InstanceOnly"));
 
     fields.append(field(QStringLiteral("z2mVersion"),
                         QStringLiteral("String"),
@@ -165,9 +167,25 @@ QJsonArray instanceSettingsFields()
                         QStringLiteral("Zigbee channel"),
                         QStringLiteral("Zigbee channel (11-26). Requires restart."),
                         QJsonValue(),
-                        roFlags,
+                        instanceOnlyFlags,
                         QStringLiteral("settings"),
                         zigbeeChannelMeta));
+
+    fields.append(field(QStringLiteral("panId"),
+                        QStringLiteral("String"),
+                        QStringLiteral("PAN ID"),
+                        QStringLiteral("Current Zigbee PAN ID."),
+                        QJsonValue(),
+                        roFlags,
+                        QStringLiteral("settings")));
+
+    fields.append(field(QStringLiteral("extPanId"),
+                        QStringLiteral("String"),
+                        QStringLiteral("Extended PAN ID"),
+                        QStringLiteral("Current Zigbee extended PAN ID."),
+                        QJsonValue(),
+                        roFlags,
+                        QStringLiteral("settings")));
 
     fields.append(field(QStringLiteral("serialPort"),
                         QStringLiteral("String"),
@@ -181,6 +199,22 @@ QJsonArray instanceSettingsFields()
                         QStringLiteral("String"),
                         QStringLiteral("USB adapter"),
                         QStringLiteral("Configured coordinator USB adapter."),
+                        QJsonValue(),
+                        roFlags,
+                        QStringLiteral("settings")));
+
+    fields.append(field(QStringLiteral("coordinatorType"),
+                        QStringLiteral("String"),
+                        QStringLiteral("Coordinator type"),
+                        QStringLiteral("Detected Zigbee coordinator type."),
+                        QJsonValue(),
+                        roFlags,
+                        QStringLiteral("settings")));
+
+    fields.append(field(QStringLiteral("coordinatorFirmware"),
+                        QStringLiteral("String"),
+                        QStringLiteral("Coordinator firmware"),
+                        QStringLiteral("Detected Zigbee coordinator firmware revision."),
                         QJsonValue(),
                         roFlags,
                         QStringLiteral("settings")));
@@ -271,10 +305,7 @@ phicore::adapter::v1::AdapterCapabilities capabilities()
 phicore::adapter::v1::JsonText configSchemaJson()
 {
     const QJsonArray baseFields = baseSchemaFields();
-    QJsonArray instanceFields = baseSchemaFields(QStringLiteral("settings"));
-    const QJsonArray settingsFields = instanceSettingsFields();
-    for (const QJsonValue &value : settingsFields)
-        instanceFields.append(value);
+    const QJsonArray instanceFields = instanceSettingsFields();
 
     QJsonObject schema;
     schema.insert(QStringLiteral("factory"),

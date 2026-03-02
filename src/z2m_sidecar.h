@@ -20,6 +20,7 @@ protected:
     void onConnected() override;
     void onDisconnected() override;
     void onBootstrap(const phicore::adapter::sdk::BootstrapRequest &request) override;
+    void onConfigChanged(const phicore::adapter::sdk::ConfigChangedRequest &request) override;
 
     phicore::adapter::v1::CmdResponse onChannelInvoke(
         const phicore::adapter::sdk::ChannelInvokeRequest &request) override;
@@ -47,7 +48,7 @@ private:
     using CmdStatus = phicore::adapter::v1::CmdStatus;
 
     void wireRuntimeSignals();
-    void applyBootstrap(const phicore::adapter::sdk::BootstrapRequest &request);
+    void applyRuntimeConfig(const phicore::adapter::sdk::ConfigChangedRequest &request);
 
     CmdResponse waitCmdResponse(std::uint64_t cmdId,
                                 const std::function<void()> &invoke,
@@ -67,8 +68,8 @@ private:
     static std::int64_t nowMs();
 
     phicore::adapter::Z2mAdapter m_runtime;
-    phicore::adapter::v1::Adapter m_bootstrapAdapter;
-    QJsonObject m_bootstrapMeta;
+    phicore::adapter::v1::Adapter m_runtimeAdapter;
+    QJsonObject m_runtimeMeta;
     QJsonObject m_staticConfig;
     bool m_connected = false;
     bool m_started = false;

@@ -1819,13 +1819,46 @@ void Z2mAdapter::handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs
         QJsonObject metaPatch;
         metaPatch.insert(QStringLiteral("bridge_info"), payload);
         if (!z2mVersion.isEmpty())
-            metaPatch.insert(QStringLiteral("z2m_version"), z2mVersion);
+            metaPatch.insert(QStringLiteral("z2mVersion"), z2mVersion);
         if (!z2mCommit.isEmpty())
-            metaPatch.insert(QStringLiteral("z2m_commit"), z2mCommit);
+            metaPatch.insert(QStringLiteral("z2mCommit"), z2mCommit);
         if (payload.contains(QStringLiteral("permit_join")))
-            metaPatch.insert(QStringLiteral("permit_join"), payload.value(QStringLiteral("permit_join")));
+            metaPatch.insert(QStringLiteral("permitJoin"), payload.value(QStringLiteral("permit_join")));
         if (payload.contains(QStringLiteral("log_level")))
-            metaPatch.insert(QStringLiteral("log_level"), payload.value(QStringLiteral("log_level")));
+            metaPatch.insert(QStringLiteral("logLevel"), payload.value(QStringLiteral("log_level")));
+
+        const QJsonObject network = payload.value(QStringLiteral("network")).toObject();
+        if (network.contains(QStringLiteral("channel")))
+            metaPatch.insert(QStringLiteral("zigbeeChannel"), network.value(QStringLiteral("channel")));
+
+        const QString panId = network.value(QStringLiteral("pan_id")).toVariant().toString().trimmed();
+        if (!panId.isEmpty())
+            metaPatch.insert(QStringLiteral("panId"), panId);
+
+        const QString extPanId = network.value(QStringLiteral("extended_pan_id"))
+                                     .toVariant()
+                                     .toString()
+                                     .trimmed();
+        if (!extPanId.isEmpty())
+            metaPatch.insert(QStringLiteral("extPanId"), extPanId);
+
+        if (!serialPort.isEmpty())
+            metaPatch.insert(QStringLiteral("serialPort"), serialPort);
+        if (!serialAdapter.isEmpty())
+            metaPatch.insert(QStringLiteral("serialAdapter"), serialAdapter);
+
+        const QString coordinatorType = coordinator.value(QStringLiteral("type")).toString().trimmed();
+        if (!coordinatorType.isEmpty())
+            metaPatch.insert(QStringLiteral("coordinatorType"), coordinatorType);
+
+        QString coordinatorFirmware = coordinatorMeta.value(QStringLiteral("revision")).toString().trimmed();
+        if (coordinatorFirmware.isEmpty())
+            coordinatorFirmware = coordinatorMeta.value(QStringLiteral("firmware")).toString().trimmed();
+        if (coordinatorFirmware.isEmpty())
+            coordinatorFirmware = coordinatorMeta.value(QStringLiteral("version")).toString().trimmed();
+        if (!coordinatorFirmware.isEmpty())
+            metaPatch.insert(QStringLiteral("coordinatorFirmware"), coordinatorFirmware);
+
         emit adapterMetaUpdated(metaPatch);
     }
 
