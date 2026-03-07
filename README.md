@@ -72,13 +72,13 @@ Reason:
 ### Build
 
 ```bash
-cmake -S . -B build
-cmake --build build --parallel
+cmake -S . -B ../build/phi-adapter-z2m/release-ninja -G Ninja
+cmake --build ../build/phi-adapter-z2m/release-ninja --parallel
 ```
 
 ### Installation
 
-- Build output: `build/plugins/adapters/phi_adapter_z2m_ipc`
+- Build output: `../build/phi-adapter-z2m/release-ninja/plugins/adapters/phi_adapter_z2m_ipc`
 - Deploy to: `/opt/phi/plugins/adapters/`
 
 ### Troubleshooting
