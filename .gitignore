@@ -17,3 +17,5 @@
 /*.orig.tar.*
 /*.diff
 /*.upload
+
+/build-system/
