@@ -33,15 +33,37 @@ std::int64_t nowMs()
 
 ActionResponse factoryProbe(std::uint64_t cmdId, const QJsonObject &params)
 {
-    QJsonObject source = params;
     const QJsonObject factoryAdapter = params.value("factoryAdapter").toObject();
-    if (!factoryAdapter.isEmpty())
-        source = factoryAdapter;
 
-    const QString host = source.value(QStringLiteral("host")).toString().trimmed().isEmpty()
-        ? source.value(QStringLiteral("ip")).toString().trimmed()
-        : source.value(QStringLiteral("host")).toString().trimmed();
-    const int port = source.value(QStringLiteral("port")).toInt(1883);
+    const auto pickText = [&params, &factoryAdapter](const char *primaryKey, const char *fallbackKey = nullptr) {
+        const QString direct = params.value(QLatin1String(primaryKey)).toString().trimmed();
+        if (!direct.isEmpty())
+            return direct;
+        if (fallbackKey != nullptr) {
+            const QString directFallback = params.value(QLatin1String(fallbackKey)).toString().trimmed();
+            if (!directFallback.isEmpty())
+                return directFallback;
+        }
+        const QString nested = factoryAdapter.value(QLatin1String(primaryKey)).toString().trimmed();
+        if (!nested.isEmpty())
+            return nested;
+        if (fallbackKey != nullptr)
+            return factoryAdapter.value(QLatin1String(fallbackKey)).toString().trimmed();
+        return QString{};
+    };
+
+    const auto pickPort = [&params, &factoryAdapter]() {
+        const int direct = params.value(QStringLiteral("port")).toInt(0);
+        if (direct > 0)
+            return direct;
+        const int nested = factoryAdapter.value(QStringLiteral("port")).toInt(0);
+        if (nested > 0)
+            return nested;
+        return 1883;
+    };
+
+    const QString host = pickText("host", "ip");
+    const int port = pickPort();
 
     ActionResponse response;
     response.id = cmdId;
@@ -56,7 +78,7 @@ ActionResponse factoryProbe(std::uint64_t cmdId, const QJsonObject &params)
     }
 
     QTcpSocket socket;
-    socket.connectToHost(host, static_cast<quint16>(port > 0 ? port : 1883));
+    socket.connectToHost(host, static_cast<quint16>(port));
     if (!socket.waitForConnected(2000)) {
         const QString error = socket.errorString().trimmed().isEmpty()
             ? QStringLiteral("Connection failed")
