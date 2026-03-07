@@ -418,7 +418,6 @@ Z2mAdapter::~Z2mAdapter()
 bool Z2mAdapter::start(QString &errorString)
 {
     errorString.clear();
-    m_pendingFullSync = false;
     applyConfig();
 
     if (!m_client) {
@@ -529,8 +528,6 @@ void Z2mAdapter::updateStaticConfig(const QJsonObject &config)
 
 void Z2mAdapter::requestFullSync()
 {
-    m_pendingFullSync = true;
-    qCInfo(adapterLog) << "Z2M requestFullSync() pending=true";
     if (m_client && m_client->state() == ::phicore::MqttClient::State::Connected) {
         const QByteArray requestPayload = QByteArrayLiteral("{}");
         const QString topic = QStringLiteral("%1/bridge/request/devices").arg(m_baseTopic);
@@ -1253,11 +1250,6 @@ void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices, bool full
         }
     }
 
-    if (m_pendingFullSync) {
-        qCInfo(adapterLog) << "Z2M full sync completed via bridge/devices payload";
-        emit fullSyncCompleted();
-        m_pendingFullSync = false;
-    }
 }
 
 void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,

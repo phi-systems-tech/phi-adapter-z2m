@@ -68,7 +68,6 @@ public:
 signals:
     void connectionStateChanged(bool connected);
     void errorOccurred(const QString &msg, const QVariantList &params = {}, const QString &ctx = {});
-    void fullSyncCompleted();
 
     void roomUpdated(const phicore::adapter::Room &room);
     void roomRemoved(const QString &roomId);
@@ -114,7 +113,6 @@ protected slots:
     virtual void adapterConfigUpdated() { requestFullSync(); }
 
     // Trigger a full sync of devices/channels from the remote system.
-    // must emit fullSyncCompleted() when finished
     virtual void requestFullSync() = 0;
 
     // Must emit a CmdResponse for every command, even if the adapter itself

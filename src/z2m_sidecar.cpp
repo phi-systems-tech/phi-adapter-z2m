@@ -10,7 +10,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimer>
-#include <QTcpSocket>
 
 #include "z2m_runtime_convert.h"
 #include "z2m_schema.h"
@@ -64,17 +63,32 @@ QVariant parseValueJson(const std::string &json)
     return trimmed;
 }
 
-QJsonObject nestedObject(const QJsonObject &root, const QString &key)
-{
-    const QJsonValue value = root.value(key);
-    return value.isObject() ? value.toObject() : QJsonObject{};
-}
-
 } // namespace
 
 Z2mSidecar::Z2mSidecar()
 {
     wireRuntimeSignals();
+}
+
+bool Z2mSidecar::start()
+{
+    if (!ensureRuntimeThread())
+        return false;
+
+    if (m_runtime.thread() != QThread::currentThread()) {
+        const v1::Utf8String errorMessage = "Failed to bind runtime to execution thread";
+        v1::Utf8String error;
+        sendError(errorMessage, {}, "start", &error);
+        return false;
+    }
+    m_started = false;
+    return true;
+}
+
+void Z2mSidecar::stop()
+{
+    m_started = false;
+    m_runtime.stopAdapter();
 }
 
 void Z2mSidecar::onConnected()
@@ -84,7 +98,6 @@ void Z2mSidecar::onConnected()
 
 void Z2mSidecar::onDisconnected()
 {
-    m_connected = false;
     m_started = false;
     m_runtime.stopAdapter();
 
@@ -94,21 +107,9 @@ void Z2mSidecar::onDisconnected()
     std::cerr << "z2m-ipc disconnected" << '\n';
 }
 
-void Z2mSidecar::onBootstrap(const sdk::BootstrapRequest &request)
-{
-    AdapterSidecar::onBootstrap(request);
-    m_started = false;
-    m_runtime.stopAdapter();
-
-    std::cerr << "z2m-ipc bootstrap adapterId=" << request.adapterId
-              << " externalId=" << request.adapter.externalId
-              << " pluginType=" << request.adapter.pluginType
-              << '\n';
-}
-
 void Z2mSidecar::onConfigChanged(const sdk::ConfigChangedRequest &request)
 {
-    AdapterSidecar::onConfigChanged(request);
+    AdapterInstance::onConfigChanged(request);
     applyRuntimeConfig(request);
 
     m_started = false;
@@ -120,10 +121,13 @@ void Z2mSidecar::onConfigChanged(const sdk::ConfigChangedRequest &request)
               << '\n';
 }
 
-phicore::adapter::v1::CmdResponse Z2mSidecar::onChannelInvoke(const sdk::ChannelInvokeRequest &request)
+void Z2mSidecar::onChannelInvoke(const sdk::ChannelInvokeRequest &request)
 {
     if (!m_started)
-        return makeFailure(request.cmdId, CmdStatus::TemporarilyOffline, QStringLiteral("Adapter not started"));
+        return submitCmdResult(makeFailure(request.cmdId,
+                                          CmdStatus::TemporarilyOffline,
+                                          QStringLiteral("Adapter not started")),
+                               "channel.invoke");
 
     QVariant value;
     if (request.hasScalarValue)
@@ -131,7 +135,7 @@ phicore::adapter::v1::CmdResponse Z2mSidecar::onChannelInvoke(const sdk::Channel
     else
         value = parseValueJson(request.valueJson);
 
-    return waitCmdResponse(
+    submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
             m_runtime.invokeChannelUpdate(QString::fromStdString(request.deviceExternalId),
@@ -139,74 +143,92 @@ phicore::adapter::v1::CmdResponse Z2mSidecar::onChannelInvoke(const sdk::Channel
                                           value,
                                           request.cmdId);
         },
-        timeoutMs());
+        kDefaultTimeoutMs),
+        "channel.invoke");
 }
 
-phicore::adapter::v1::ActionResponse Z2mSidecar::onAdapterActionInvoke(
-    const sdk::AdapterActionInvokeRequest &request)
+void Z2mSidecar::onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &request)
 {
-    const QString actionId = QString::fromStdString(request.actionId).trimmed();
-    const QJsonObject params = parseJsonObject(request.paramsJson);
-
-    if (actionId == QLatin1String("probe"))
-        return invokeProbe(request.cmdId, params);
-
-    if (!m_started) {
-        return makeActionFailure(request.cmdId,
-                                 CmdStatus::TemporarilyOffline,
-                                 QStringLiteral("Adapter not started"));
+    if (request.actionId == "probe") {
+        submitActionResult(makeActionFailure(request.cmdId,
+                                            CmdStatus::NotImplemented,
+                                            QStringLiteral("probe is factory scoped")),
+                          "adapter.action.invoke");
+        return;
     }
 
-    return waitActionResponse(
+    if (!m_started) {
+        submitActionResult(
+            makeActionFailure(request.cmdId,
+                             CmdStatus::TemporarilyOffline,
+                             QStringLiteral("Adapter not started")),
+            "adapter.action.invoke");
+        return;
+    }
+
+    const QString actionId = QString::fromStdString(request.actionId).trimmed();
+    const QJsonObject params = parseJsonObject(request.paramsJson);
+    submitActionResult(
+        waitActionResponse(
         request.cmdId,
         [&]() {
             m_runtime.invokeAction(actionId, params, request.cmdId);
         },
-        timeoutMs());
+        kDefaultTimeoutMs),
+        "adapter.action.invoke");
 }
 
-phicore::adapter::v1::CmdResponse Z2mSidecar::onDeviceNameUpdate(
-    const sdk::DeviceNameUpdateRequest &request)
+void Z2mSidecar::onDeviceNameUpdate(const sdk::DeviceNameUpdateRequest &request)
 {
     if (!m_started)
-        return makeFailure(request.cmdId, CmdStatus::TemporarilyOffline, QStringLiteral("Adapter not started"));
+        return submitCmdResult(makeFailure(request.cmdId,
+                                          CmdStatus::TemporarilyOffline,
+                                          QStringLiteral("Adapter not started")),
+                               "device.name.update");
 
-    return waitCmdResponse(
+    submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
             m_runtime.invokeNameUpdate(QString::fromStdString(request.deviceExternalId),
                                        QString::fromStdString(request.name),
                                        request.cmdId);
         },
-        timeoutMs());
+        kDefaultTimeoutMs),
+        "device.name.update");
 }
 
-phicore::adapter::v1::CmdResponse Z2mSidecar::onDeviceEffectInvoke(
-    const sdk::DeviceEffectInvokeRequest &request)
+void Z2mSidecar::onDeviceEffectInvoke(const sdk::DeviceEffectInvokeRequest &request)
 {
     if (!m_started)
-        return makeFailure(request.cmdId, CmdStatus::TemporarilyOffline, QStringLiteral("Adapter not started"));
+        return submitCmdResult(
+            makeFailure(request.cmdId, CmdStatus::TemporarilyOffline, QStringLiteral("Adapter not started")),
+            "device.effect.invoke");
 
     const QJsonObject params = parseJsonObject(request.paramsJson);
 
-    return waitCmdResponse(
-        request.cmdId,
-        [&]() {
-            m_runtime.invokeEffect(QString::fromStdString(request.deviceExternalId),
-                                   static_cast<runtimeapi::DeviceEffect>(request.effect),
-                                   QString::fromStdString(request.effectId),
-                                   params,
-                                   request.cmdId);
-        },
-        timeoutMs());
+    submitCmdResult(
+        waitCmdResponse(
+            request.cmdId,
+            [&]() {
+                m_runtime.invokeEffect(QString::fromStdString(request.deviceExternalId),
+                                       static_cast<runtimeapi::DeviceEffect>(request.effect),
+                                       QString::fromStdString(request.effectId),
+                                       params,
+                                       request.cmdId);
+            },
+            kDefaultTimeoutMs),
+        "device.effect.invoke");
 }
 
-phicore::adapter::v1::CmdResponse Z2mSidecar::onSceneInvoke(const sdk::SceneInvokeRequest &request)
+void Z2mSidecar::onSceneInvoke(const sdk::SceneInvokeRequest &request)
 {
     if (!m_started)
-        return makeFailure(request.cmdId, CmdStatus::TemporarilyOffline, QStringLiteral("Adapter not started"));
+        return submitCmdResult(makeFailure(request.cmdId,
+                                          CmdStatus::TemporarilyOffline,
+                                          QStringLiteral("Adapter not started")),
+                               "scene.invoke");
 
-    return waitCmdResponse(
+    submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
             m_runtime.invokeSceneAction(QString::fromStdString(request.sceneExternalId),
@@ -214,47 +236,8 @@ phicore::adapter::v1::CmdResponse Z2mSidecar::onSceneInvoke(const sdk::SceneInvo
                                         QString::fromStdString(request.action),
                                         request.cmdId);
         },
-        timeoutMs());
-}
-
-phicore::adapter::v1::Utf8String Z2mSidecar::displayName() const
-{
-    return phicore::z2m::ipc::displayName();
-}
-
-phicore::adapter::v1::Utf8String Z2mSidecar::description() const
-{
-    return phicore::z2m::ipc::description();
-}
-
-phicore::adapter::v1::Utf8String Z2mSidecar::iconSvg() const
-{
-    return phicore::z2m::ipc::iconSvg();
-}
-
-phicore::adapter::v1::Utf8String Z2mSidecar::apiVersion() const
-{
-    return "1.0.0";
-}
-
-int Z2mSidecar::timeoutMs() const
-{
-    return 15000;
-}
-
-int Z2mSidecar::maxInstances() const
-{
-    return 0;
-}
-
-phicore::adapter::v1::AdapterCapabilities Z2mSidecar::capabilities() const
-{
-    return phicore::z2m::ipc::capabilities();
-}
-
-phicore::adapter::v1::JsonText Z2mSidecar::configSchemaJson() const
-{
-    return phicore::z2m::ipc::configSchemaJson();
+        kDefaultTimeoutMs),
+        "scene.invoke");
 }
 
 void Z2mSidecar::wireRuntimeSignals()
@@ -263,7 +246,6 @@ void Z2mSidecar::wireRuntimeSignals()
                      &runtimeapi::AdapterInterface::connectionStateChanged,
                      &m_runtime,
                      [this](bool connected) {
-                         m_connected = connected;
                          if (connected)
                              m_started = true;
                          v1::Utf8String err;
@@ -281,11 +263,6 @@ void Z2mSidecar::wireRuntimeSignals()
                          v1::Utf8String err;
                          sendError(message.toStdString(), outParams, ctx.toStdString(), &err);
                      });
-
-    QObject::connect(&m_runtime, &runtimeapi::AdapterInterface::fullSyncCompleted, &m_runtime, [this]() {
-        v1::Utf8String err;
-        sendFullSyncCompleted(&err);
-    });
 
     QObject::connect(&m_runtime,
                      &runtimeapi::AdapterInterface::deviceUpdated,
@@ -348,7 +325,11 @@ void Z2mSidecar::wireRuntimeSignals()
                      &m_runtime,
                      [this](const QList<runtimeapi::Scene> &scenes) {
                          v1::Utf8String err;
-                         sendScenesUpdated(toV1(scenes), &err);
+                         const auto v1Scenes = toV1(scenes);
+                         for (const auto &scene : v1Scenes) {
+                             if (!sendSceneUpdated(scene, &err))
+                                 std::cerr << "failed to send scene updated event: " << err << '\n';
+                         }
                      });
 
     QObject::connect(&m_runtime,
@@ -400,6 +381,16 @@ void Z2mSidecar::applyRuntimeConfig(const sdk::ConfigChangedRequest &request)
     const runtimeapi::Adapter adapterInfo = fromV1(request.adapter, m_runtimeMeta);
     m_runtime.assignAdapter(adapterInfo);
     m_runtime.setStaticConfig(m_staticConfig);
+}
+
+bool Z2mSidecar::ensureRuntimeThread()
+{
+    QThread *targetThread = QThread::currentThread();
+    if (!targetThread)
+        return false;
+    if (m_runtime.thread() == targetThread)
+        return true;
+    return m_runtime.moveToThread(targetThread);
 }
 
 Z2mSidecar::CmdResponse Z2mSidecar::waitCmdResponse(std::uint64_t cmdId,
@@ -484,35 +475,6 @@ Z2mSidecar::ActionResponse Z2mSidecar::waitActionResponse(std::uint64_t cmdId,
     return makeActionFailure(cmdId, CmdStatus::Timeout, QStringLiteral("Action timed out"));
 }
 
-Z2mSidecar::ActionResponse Z2mSidecar::invokeProbe(std::uint64_t cmdId, const QJsonObject &params)
-{
-    QJsonObject source = params;
-    const QJsonObject factoryAdapter = nestedObject(params, QStringLiteral("factoryAdapter"));
-    if (!factoryAdapter.isEmpty())
-        source = factoryAdapter;
-
-    const QString host = source.value(QStringLiteral("host")).toString().trimmed().isEmpty()
-        ? source.value(QStringLiteral("ip")).toString().trimmed()
-        : source.value(QStringLiteral("host")).toString().trimmed();
-    const int port = source.value(QStringLiteral("port")).toInt(1883);
-
-    if (host.isEmpty())
-        return makeActionFailure(cmdId, CmdStatus::InvalidArgument, QStringLiteral("Host must not be empty."));
-
-    QTcpSocket socket;
-    socket.connectToHost(host, static_cast<quint16>(port > 0 ? port : 1883));
-    if (!socket.waitForConnected(2000)) {
-        const QString error = socket.errorString().trimmed().isEmpty()
-            ? QStringLiteral("Connection failed")
-            : socket.errorString().trimmed();
-        socket.abort();
-        return makeActionFailure(cmdId, CmdStatus::Failure, error);
-    }
-
-    socket.disconnectFromHost();
-    return makeActionSuccess(cmdId, true);
-}
-
 Z2mSidecar::CmdResponse Z2mSidecar::makeFailure(std::uint64_t cmdId,
                                                 CmdStatus status,
                                                 const QString &message) const
@@ -521,15 +483,6 @@ Z2mSidecar::CmdResponse Z2mSidecar::makeFailure(std::uint64_t cmdId,
     out.id = cmdId;
     out.status = status;
     out.error = message.toStdString();
-    out.tsMs = nowMs();
-    return out;
-}
-
-Z2mSidecar::CmdResponse Z2mSidecar::makeSuccess(std::uint64_t cmdId) const
-{
-    CmdResponse out;
-    out.id = cmdId;
-    out.status = CmdStatus::Success;
     out.tsMs = nowMs();
     return out;
 }
@@ -546,33 +499,23 @@ Z2mSidecar::ActionResponse Z2mSidecar::makeActionFailure(std::uint64_t cmdId,
     return out;
 }
 
-Z2mSidecar::ActionResponse Z2mSidecar::makeActionSuccess(
-    std::uint64_t cmdId,
-    const phicore::adapter::v1::ScalarValue &result) const
-{
-    ActionResponse out;
-    out.id = cmdId;
-    out.status = CmdStatus::Success;
-    out.tsMs = nowMs();
-    out.resultValue = result;
-
-    if (std::holds_alternative<bool>(result))
-        out.resultType = v1::ActionResultType::Boolean;
-    else if (std::holds_alternative<std::int64_t>(result))
-        out.resultType = v1::ActionResultType::Integer;
-    else if (std::holds_alternative<double>(result))
-        out.resultType = v1::ActionResultType::Float;
-    else if (std::holds_alternative<std::string>(result))
-        out.resultType = v1::ActionResultType::String;
-    else
-        out.resultType = v1::ActionResultType::None;
-
-    return out;
-}
-
 std::int64_t Z2mSidecar::nowMs()
 {
     return QDateTime::currentMSecsSinceEpoch();
+}
+
+void Z2mSidecar::submitCmdResult(CmdResponse response, const char *context)
+{
+    v1::Utf8String err;
+    if (!sendResult(response, &err))
+        std::cerr << "failed to send " << context << " result: " << err << '\n';
+}
+
+void Z2mSidecar::submitActionResult(ActionResponse response, const char *context)
+{
+    v1::Utf8String err;
+    if (!sendResult(response, &err))
+        std::cerr << "failed to send " << context << " result: " << err << '\n';
 }
 
 } // namespace phicore::z2m::ipc

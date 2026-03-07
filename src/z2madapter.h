@@ -125,7 +125,6 @@ private:
     bool m_mqttConnected = false;
     bool m_bridgeOnline = true;
     bool m_lastSeenRequested = false;
-    bool m_pendingFullSync = false;
     int m_retryIntervalMs = 10000;
     QString m_baseTopic = QStringLiteral("zigbee2mqtt");
     QJsonObject m_staticConfig;

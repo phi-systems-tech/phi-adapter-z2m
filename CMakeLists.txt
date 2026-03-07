@@ -62,6 +62,17 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk)
         message(FATAL_ERROR "phi-adapter-sdk target phi::adapter-sdk not found")
     endif()
+    if(NOT TARGET phi::adapter-sdk-qt)
+        if(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK AND EXISTS "${PHI_ADAPTER_SDK_SOURCE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR "phi::adapter-sdk was found locally but without Qt target; install phi-adapter-sdk-qt or enable Qt helpers in phi-adapter-sdk")
+        else()
+            message(STATUS "Using installed phi-adapter-sdk-qt via find_package")
+            find_package(phi-adapter-sdk-qt CONFIG REQUIRED)
+        endif()
+    endif()
+    if(NOT TARGET phi::adapter-sdk-qt)
+        message(FATAL_ERROR "phi::adapter-sdk target phi::adapter-sdk-qt not found")
+    endif()
 
     add_executable(phi_adapter_z2m_ipc
         src/main.cpp
@@ -94,13 +105,14 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/mqtt
     )
 
-    target_link_libraries(phi_adapter_z2m_ipc
-        PRIVATE
-            Qt6::Core
-            Qt6::Network
-            phi::adapter-sdk
-            mosquitto::mosquitto
-    )
+        target_link_libraries(phi_adapter_z2m_ipc
+            PRIVATE
+                Qt6::Core
+                Qt6::Network
+                phi::adapter-sdk
+                phi::adapter-sdk-qt
+                mosquitto::mosquitto
+        )
 
     set_target_properties(phi_adapter_z2m_ipc PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/adapters"

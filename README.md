@@ -63,6 +63,7 @@ Reason:
 - Qt6 modules: `Core`, `Network`
 - `libmosquitto-dev`
 - `phi-adapter-sdk` (local checkout or installed package)
+- `phi-adapter-sdk-qt` (local checkout or installed package)
 
 ### Configuration
 
