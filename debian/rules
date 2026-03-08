@@ -8,7 +8,6 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DCMAKE_INSTALL_PREFIX=/usr \
-		-DCMAKE_INSTALL_LIBDIR=lib \
 		-DPHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK=OFF
 
 override_dh_shlibdeps:

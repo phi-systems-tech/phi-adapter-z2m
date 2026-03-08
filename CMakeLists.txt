@@ -6,6 +6,8 @@ project(phi-adapter-z2m
     LANGUAGES CXX
 )
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -129,10 +131,10 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     )
 
     install(TARGETS phi_adapter_z2m_ipc
-        RUNTIME DESTINATION lib/phi/plugins/adapters
+        RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
     )
 endif()
 
 install(FILES z2m-config.json
-    DESTINATION lib/phi/plugins/adapters
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
 )
