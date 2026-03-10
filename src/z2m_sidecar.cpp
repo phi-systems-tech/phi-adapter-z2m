@@ -19,7 +19,7 @@ namespace phicore::z2m::ipc {
 namespace {
 
 namespace v1 = phicore::adapter::v1;
-namespace sdk = phicore::adapter::sdk;
+namespace phi = phicore::adapter::sdk;
 namespace runtimeapi = phicore::adapter;
 
 QJsonObject parseJsonObject(const std::string &json)
@@ -78,7 +78,7 @@ bool Z2mSidecar::start()
     if (m_runtime.thread() != QThread::currentThread()) {
         const v1::Utf8String errorMessage = "Failed to bind runtime to execution thread";
         v1::Utf8String error;
-        sendError(errorMessage, {}, "start", &error);
+        sendError(phi::LogCategory::Internal, errorMessage, {}, "start", {}, 0, &error);
         return false;
     }
     m_started = false;
@@ -107,7 +107,7 @@ void Z2mSidecar::onDisconnected()
     std::cerr << "z2m-ipc disconnected" << '\n';
 }
 
-void Z2mSidecar::onConfigChanged(const sdk::ConfigChangedRequest &request)
+void Z2mSidecar::onConfigChanged(const phi::ConfigChangedRequest &request)
 {
     AdapterInstance::onConfigChanged(request);
     applyRuntimeConfig(request);
@@ -121,7 +121,7 @@ void Z2mSidecar::onConfigChanged(const sdk::ConfigChangedRequest &request)
               << '\n';
 }
 
-void Z2mSidecar::onChannelInvoke(const sdk::ChannelInvokeRequest &request)
+void Z2mSidecar::onChannelInvoke(const phi::ChannelInvokeRequest &request)
 {
     if (!m_started)
         return submitCmdResult(makeFailure(request.cmdId,
@@ -147,7 +147,7 @@ void Z2mSidecar::onChannelInvoke(const sdk::ChannelInvokeRequest &request)
         "channel.invoke");
 }
 
-void Z2mSidecar::onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &request)
+void Z2mSidecar::onAdapterActionInvoke(const phi::AdapterActionInvokeRequest &request)
 {
     if (request.actionId == "probe") {
         submitActionResult(makeActionFailure(request.cmdId,
@@ -178,7 +178,7 @@ void Z2mSidecar::onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &re
         "adapter.action.invoke");
 }
 
-void Z2mSidecar::onDeviceNameUpdate(const sdk::DeviceNameUpdateRequest &request)
+void Z2mSidecar::onDeviceNameUpdate(const phi::DeviceNameUpdateRequest &request)
 {
     if (!m_started)
         return submitCmdResult(makeFailure(request.cmdId,
@@ -197,7 +197,7 @@ void Z2mSidecar::onDeviceNameUpdate(const sdk::DeviceNameUpdateRequest &request)
         "device.name.update");
 }
 
-void Z2mSidecar::onDeviceEffectInvoke(const sdk::DeviceEffectInvokeRequest &request)
+void Z2mSidecar::onDeviceEffectInvoke(const phi::DeviceEffectInvokeRequest &request)
 {
     if (!m_started)
         return submitCmdResult(
@@ -220,7 +220,7 @@ void Z2mSidecar::onDeviceEffectInvoke(const sdk::DeviceEffectInvokeRequest &requ
         "device.effect.invoke");
 }
 
-void Z2mSidecar::onSceneInvoke(const sdk::SceneInvokeRequest &request)
+void Z2mSidecar::onSceneInvoke(const phi::SceneInvokeRequest &request)
 {
     if (!m_started)
         return submitCmdResult(makeFailure(request.cmdId,
@@ -261,7 +261,13 @@ void Z2mSidecar::wireRuntimeSignals()
                          for (const QVariant &entry : params)
                              outParams.push_back(toScalarValue(entry));
                          v1::Utf8String err;
-                         sendError(message.toStdString(), outParams, ctx.toStdString(), &err);
+                         sendError(phi::LogCategory::Network,
+                                   message.toStdString(),
+                                   outParams,
+                                   ctx.toStdString(),
+                                   {},
+                                   0,
+                                   &err);
                      });
 
     QObject::connect(&m_runtime,
@@ -367,12 +373,18 @@ void Z2mSidecar::wireRuntimeSignals()
                              v1::Utf8String err;
                              sendConnectionStateChanged(false, &err);
                              if (!errorString.trimmed().isEmpty())
-                                 sendError(errorString.toStdString(), {}, "start", &err);
+                                 sendError(phi::LogCategory::Internal,
+                                           errorString.toStdString(),
+                                           {},
+                                           "start",
+                                           {},
+                                           0,
+                                           &err);
                          }
                      });
 }
 
-void Z2mSidecar::applyRuntimeConfig(const sdk::ConfigChangedRequest &request)
+void Z2mSidecar::applyRuntimeConfig(const phi::ConfigChangedRequest &request)
 {
     m_runtimeAdapter = request.adapter;
     m_runtimeMeta = parseJsonObject(request.adapter.metaJson);

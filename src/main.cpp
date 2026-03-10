@@ -19,7 +19,7 @@
 
 namespace {
 
-namespace sdk = phicore::adapter::sdk;
+namespace phi = phicore::adapter::sdk;
 namespace v1 = phicore::adapter::v1;
 
 std::atomic_bool g_running{true};
@@ -100,24 +100,24 @@ void handleSignal(int)
     g_running.store(false);
 }
 
-class Z2mFactory final : public sdk::AdapterFactory
+class Z2mFactory final : public phi::AdapterFactory
 {
 public:
-    std::unique_ptr<sdk::InstanceExecutionBackend> createInstanceExecutionBackend(
+    std::unique_ptr<phi::InstanceExecutionBackend> createInstanceExecutionBackend(
         const v1::ExternalId &externalId) override
     {
         (void)externalId;
-        return sdk::qt::createInstanceExecutionBackend();
+        return phi::qt::createInstanceExecutionBackend();
     }
 
-    std::unique_ptr<sdk::AdapterInstance> createInstance(
+    std::unique_ptr<phi::AdapterInstance> createInstance(
         const v1::ExternalId &externalId) override
     {
         (void)externalId;
         return std::make_unique<phicore::z2m::ipc::Z2mSidecar>();
     }
 
-    void onFactoryActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
+    void onFactoryActionInvoke(const phi::AdapterActionInvokeRequest &request) override
     {
         v1::ActionResponse response;
 
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
               << " socket=" << socketPath << '\n';
 
     Z2mFactory factory;
-    sdk::SidecarHost host(socketPath, factory);
+    phi::SidecarHost host(socketPath, factory);
 
     v1::Utf8String error;
     if (!host.start(&error)) {
