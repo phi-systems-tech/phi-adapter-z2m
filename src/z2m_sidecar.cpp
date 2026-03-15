@@ -67,20 +67,13 @@ QVariant parseValueJson(const std::string &json)
 
 Z2mSidecar::Z2mSidecar()
 {
-    wireRuntimeSignals();
 }
 
 bool Z2mSidecar::start()
 {
-    if (!ensureRuntimeThread())
+    if (!ensureRuntime())
         return false;
 
-    if (m_runtime.thread() != QThread::currentThread()) {
-        const v1::Utf8String errorMessage = "Failed to bind runtime to execution thread";
-        v1::Utf8String error;
-        sendError(phi::LogCategory::Internal, errorMessage, {}, "start", {}, 0, &error);
-        return false;
-    }
     m_started = false;
     return true;
 }
@@ -88,7 +81,8 @@ bool Z2mSidecar::start()
 void Z2mSidecar::stop()
 {
     m_started = false;
-    m_runtime.stopAdapter();
+    if (m_runtime)
+        m_runtime->stopAdapter();
 }
 
 void Z2mSidecar::onConnected()
@@ -99,7 +93,8 @@ void Z2mSidecar::onConnected()
 void Z2mSidecar::onDisconnected()
 {
     m_started = false;
-    m_runtime.stopAdapter();
+    if (m_runtime)
+        m_runtime->stopAdapter();
 
     v1::Utf8String err;
     sendConnectionStateChanged(false, &err);
@@ -110,10 +105,14 @@ void Z2mSidecar::onDisconnected()
 void Z2mSidecar::onConfigChanged(const phi::ConfigChangedRequest &request)
 {
     AdapterInstance::onConfigChanged(request);
+
+    if (!ensureRuntime())
+        return;
+
     applyRuntimeConfig(request);
 
     m_started = false;
-    m_runtime.startAdapterAsync();
+    m_runtime->startAdapterAsync();
 
     std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
               << " externalId=" << request.adapter.externalId
@@ -138,7 +137,7 @@ void Z2mSidecar::onChannelInvoke(const phi::ChannelInvokeRequest &request)
     submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
-            m_runtime.invokeChannelUpdate(QString::fromStdString(request.deviceExternalId),
+            m_runtime->invokeChannelUpdate(QString::fromStdString(request.deviceExternalId),
                                           QString::fromStdString(request.channelExternalId),
                                           value,
                                           request.cmdId);
@@ -172,7 +171,7 @@ void Z2mSidecar::onAdapterActionInvoke(const phi::AdapterActionInvokeRequest &re
         waitActionResponse(
         request.cmdId,
         [&]() {
-            m_runtime.invokeAction(actionId, params, request.cmdId);
+            m_runtime->invokeAction(actionId, params, request.cmdId);
         },
         kDefaultTimeoutMs),
         "adapter.action.invoke");
@@ -189,7 +188,7 @@ void Z2mSidecar::onDeviceNameUpdate(const phi::DeviceNameUpdateRequest &request)
     submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
-            m_runtime.invokeNameUpdate(QString::fromStdString(request.deviceExternalId),
+            m_runtime->invokeNameUpdate(QString::fromStdString(request.deviceExternalId),
                                        QString::fromStdString(request.name),
                                        request.cmdId);
         },
@@ -210,7 +209,7 @@ void Z2mSidecar::onDeviceEffectInvoke(const phi::DeviceEffectInvokeRequest &requ
         waitCmdResponse(
             request.cmdId,
             [&]() {
-                m_runtime.invokeEffect(QString::fromStdString(request.deviceExternalId),
+                m_runtime->invokeEffect(QString::fromStdString(request.deviceExternalId),
                                        static_cast<runtimeapi::DeviceEffect>(request.effect),
                                        QString::fromStdString(request.effectId),
                                        params,
@@ -231,7 +230,7 @@ void Z2mSidecar::onSceneInvoke(const phi::SceneInvokeRequest &request)
     submitCmdResult(waitCmdResponse(
         request.cmdId,
         [&]() {
-            m_runtime.invokeSceneAction(QString::fromStdString(request.sceneExternalId),
+            m_runtime->invokeSceneAction(QString::fromStdString(request.sceneExternalId),
                                         QString::fromStdString(request.groupExternalId),
                                         QString::fromStdString(request.action),
                                         request.cmdId);
@@ -242,9 +241,9 @@ void Z2mSidecar::onSceneInvoke(const phi::SceneInvokeRequest &request)
 
 void Z2mSidecar::wireRuntimeSignals()
 {
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::connectionStateChanged,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](bool connected) {
                          if (connected)
                              m_started = true;
@@ -252,9 +251,9 @@ void Z2mSidecar::wireRuntimeSignals()
                          sendConnectionStateChanged(connected, &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::errorOccurred,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &message, const QVariantList &params, const QString &ctx) {
                          v1::ScalarList outParams;
                          outParams.reserve(params.size());
@@ -270,65 +269,65 @@ void Z2mSidecar::wireRuntimeSignals()
                                    &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::deviceUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const runtimeapi::Device &device, const runtimeapi::ChannelList &channels) {
                          v1::Utf8String err;
                          sendDeviceUpdated(toV1(device), toV1(channels), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::deviceRemoved,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &deviceExternalId) {
                          v1::Utf8String err;
                          sendDeviceRemoved(deviceExternalId.toStdString(), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::channelUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &deviceExternalId, const runtimeapi::Channel &channel) {
                          v1::Utf8String err;
                          sendChannelUpdated(deviceExternalId.toStdString(), toV1(channel), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::roomUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const runtimeapi::Room &room) {
                          v1::Utf8String err;
                          sendRoomUpdated(toV1(room), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::roomRemoved,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &roomExternalId) {
                          v1::Utf8String err;
                          sendRoomRemoved(roomExternalId.toStdString(), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::groupUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const runtimeapi::Group &group) {
                          v1::Utf8String err;
                          sendGroupUpdated(toV1(group), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::groupRemoved,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &groupExternalId) {
                          v1::Utf8String err;
                          sendGroupRemoved(groupExternalId.toStdString(), &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::scenesUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QList<runtimeapi::Scene> &scenes) {
                          v1::Utf8String err;
                          const auto v1Scenes = toV1(scenes);
@@ -338,9 +337,9 @@ void Z2mSidecar::wireRuntimeSignals()
                          }
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::channelStateUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QString &deviceExternalId,
                             const QString &channelExternalId,
                             const QVariant &value,
@@ -353,9 +352,9 @@ void Z2mSidecar::wireRuntimeSignals()
                                                  &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::adapterMetaUpdated,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](const QJsonObject &metaPatch) {
                          v1::Utf8String err;
                          const std::string json = QJsonDocument(metaPatch)
@@ -364,9 +363,9 @@ void Z2mSidecar::wireRuntimeSignals()
                          sendAdapterMetaUpdated(json, &err);
                      });
 
-    QObject::connect(&m_runtime,
+    QObject::connect(m_runtime.get(),
                      &runtimeapi::AdapterInterface::started,
-                     &m_runtime,
+                     m_runtime.get(),
                      [this](bool ok, const QString &errorString) {
                          m_started = ok;
                          if (!ok) {
@@ -391,18 +390,19 @@ void Z2mSidecar::applyRuntimeConfig(const phi::ConfigChangedRequest &request)
     m_staticConfig = parseJsonObject(request.staticConfigJson);
 
     const runtimeapi::Adapter adapterInfo = fromV1(request.adapter, m_runtimeMeta);
-    m_runtime.assignAdapter(adapterInfo);
-    m_runtime.setStaticConfig(m_staticConfig);
+    m_runtime->assignAdapter(adapterInfo);
+    m_runtime->setStaticConfig(m_staticConfig);
 }
 
-bool Z2mSidecar::ensureRuntimeThread()
+bool Z2mSidecar::ensureRuntime()
 {
-    QThread *targetThread = QThread::currentThread();
-    if (!targetThread)
-        return false;
-    if (m_runtime.thread() == targetThread)
+    if (m_runtime)
         return true;
-    return m_runtime.moveToThread(targetThread);
+    m_runtime = std::make_unique<runtimeapi::Z2mAdapter>();
+    if (!m_runtime)
+        return false;
+    wireRuntimeSignals();
+    return true;
 }
 
 Z2mSidecar::CmdResponse Z2mSidecar::waitCmdResponse(std::uint64_t cmdId,
@@ -417,7 +417,7 @@ Z2mSidecar::CmdResponse Z2mSidecar::waitCmdResponse(std::uint64_t cmdId,
     timer.setInterval(std::max(1000, timeoutMs));
 
     const QMetaObject::Connection resultConn = QObject::connect(
-        &m_runtime,
+        m_runtime.get(),
         &runtimeapi::AdapterInterface::cmdResult,
         &loop,
         [&](const runtimeapi::CmdResponse &runtimeResponse) {
@@ -458,7 +458,7 @@ Z2mSidecar::ActionResponse Z2mSidecar::waitActionResponse(std::uint64_t cmdId,
     timer.setInterval(std::max(1000, timeoutMs));
 
     const QMetaObject::Connection resultConn = QObject::connect(
-        &m_runtime,
+        m_runtime.get(),
         &runtimeapi::AdapterInterface::actionResult,
         &loop,
         [&](const runtimeapi::ActionResponse &runtimeResponse) {

@@ -2,10 +2,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include <QJsonObject>
-#include <QThread>
 
 #include "z2madapter.h"
 #include "phi/adapter/sdk/sidecar.h"
@@ -48,7 +48,7 @@ private:
 
     void wireRuntimeSignals();
     void applyRuntimeConfig(const phicore::adapter::sdk::ConfigChangedRequest &request);
-    bool ensureRuntimeThread();
+    bool ensureRuntime();
 
     CmdResponse waitCmdResponse(std::uint64_t cmdId,
                                 const std::function<void()> &invoke,
@@ -62,7 +62,7 @@ private:
 
     static std::int64_t nowMs();
 
-    phicore::adapter::Z2mAdapter m_runtime;
+    std::unique_ptr<phicore::adapter::Z2mAdapter> m_runtime;
     phicore::adapter::v1::Adapter m_runtimeAdapter;
     QJsonObject m_runtimeMeta;
     QJsonObject m_staticConfig;
