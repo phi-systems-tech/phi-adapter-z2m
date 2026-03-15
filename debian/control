@@ -9,7 +9,7 @@ Homepage: https://github.com/phi-systems-tech/phi-adapter-z2m
 
 Package: phi-adapter-z2m
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, phi-adapter-sdk, phi-adapter-sdk-qt
 Recommends: mosquitto
 Description: PHI Zigbee2MQTT adapter IPC sidecar
  IPC sidecar executable for PHI core to integrate Zigbee2MQTT via MQTT.
