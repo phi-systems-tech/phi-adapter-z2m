@@ -20,7 +20,7 @@ namespace {
 constexpr int kDefaultPort = 1883;
 constexpr int kAccessState = 0b001;
 constexpr int kAccessSet = 0b010;
-constexpr int kButtonMultiPressWindowMs = 1200;
+constexpr int kButtonMultiPressWindowMs = 1300;
 constexpr int kButtonMultiPressResetGapMs = 500;
 constexpr int kActionDuplicateWindowMs = 120;
 constexpr int kLongPressRepeatWindowMs = 800;
@@ -1418,6 +1418,26 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
                 }
                 if (binding.actionButtonId > 0 && actionButtonId == 0)
                     continue;
+                if (actionNorm.startsWith(QStringLiteral("scene_"))) {
+                    const QString pressKey = externalId + QStringLiteral(":") + binding.channelId;
+                    const qint64 lastTs = m_buttonMultiPressLastTs.value(pressKey, 0);
+                    const int count = m_buttonMultiPressCounts.value(pressKey, 0);
+                    if (count > 0 && lastTs > 0 && (tsMs - lastTs) >= kButtonMultiPressResetGapMs)
+                        finalizePendingButtonShortPress(pressKey, externalId, binding.channelId, lastTs);
+
+                    qCInfo(adapterLog).noquote()
+                        << "Z2M channel update" << externalId
+                        << binding.channelId << "value"
+                        << static_cast<int>(ButtonEventCode::InitialPress);
+                    emit channelStateUpdated(externalId,
+                                             binding.channelId,
+                                             static_cast<int>(ButtonEventCode::InitialPress),
+                                             tsMs);
+                    handleButtonShortPressRelease(pressKey, externalId, binding.channelId, tsMs);
+                    m_buttonLastEventCode.remove(pressKey);
+                    m_buttonLastEventTs.remove(pressKey);
+                    continue;
+                }
                 ButtonEventCode code = actionToButtonEvent(actionRaw);
                 if (code == ButtonEventCode::None) {
                     const QJsonValue actionTypeVal = payload.value(QStringLiteral("action_type"));
