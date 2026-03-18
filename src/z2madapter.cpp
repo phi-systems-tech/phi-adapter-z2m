@@ -2048,6 +2048,23 @@ void Z2mAdapter::collectExposeEntries(const QJsonValue &value, QList<QJsonObject
 
 void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry &entry) const
 {
+    const auto channelIdForProperty = [](const QString &property, const QString &endpoint) {
+        if (endpoint.isEmpty())
+            return property;
+        const QString endpointSuffix = QStringLiteral("_") + endpoint;
+        if (property.endsWith(endpointSuffix, Qt::CaseInsensitive))
+            return property;
+        return property + endpointSuffix;
+    };
+    const auto labelForEndpoint = [](const QString &label, const QString &endpoint) {
+        if (endpoint.isEmpty())
+            return label;
+        const QString endpointUpper = endpoint.toUpper();
+        if (label.endsWith(QStringLiteral(" %1").arg(endpointUpper), Qt::CaseInsensitive))
+            return label;
+        return QStringLiteral("%1 %2").arg(label, endpointUpper);
+    };
+
     const QString property = expose.value(QStringLiteral("property")).toString().trimmed();
     if (property.isEmpty())
         return;
@@ -2070,9 +2087,14 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     else if (expose.value(QStringLiteral("endpoint")).isDouble())
         endpoint = QString::number(expose.value(QStringLiteral("endpoint")).toInt());
 
-    QString channelId = property;
-    if (!endpoint.isEmpty())
-        channelId = property + QLatin1Char('_') + endpoint;
+    QString mappingProperty = property;
+    if (!endpoint.isEmpty()) {
+        const QString endpointSuffix = QStringLiteral("_") + endpoint;
+        if (mappingProperty.endsWith(endpointSuffix, Qt::CaseInsensitive))
+            mappingProperty.chop(endpointSuffix.size());
+    }
+
+    const QString channelId = channelIdForProperty(property, endpoint);
     if (entry.bindingsByChannel.contains(channelId))
         return;
 
@@ -2106,7 +2128,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
         { QStringLiteral("action"), { ChannelKind::ButtonEvent, ChannelDataType::Int, QString(), false } }
     };
 
-    const auto mapIt = kMappings.find(property);
+    const auto mapIt = kMappings.find(mappingProperty);
     const QString exposeType = expose.value(QStringLiteral("type")).toString().trimmed();
     const bool isEnum = exposeType == QLatin1String("enum");
     const bool isBinary = exposeType == QLatin1String("binary");
@@ -2115,7 +2137,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
     if (mapIt == kMappings.end() && !(isEnum || isBinary || isNumeric))
         return;
 
-    if (property == QStringLiteral("action") && isEnum) {
+    if (mappingProperty == QStringLiteral("action") && isEnum) {
         const int access = expose.value(QStringLiteral("access")).toInt(kAccessState);
         const ChannelFlags flags = flagsFromAccess(access);
         const QJsonArray values = expose.value(QStringLiteral("values")).toArray();
@@ -2134,7 +2156,8 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
         if (buttonIds.isEmpty()) {
             Channel button;
             button.id = channelId;
-            button.name = labelFromProperty(property, expose.value(QStringLiteral("label")).toString());
+            button.name = labelForEndpoint(labelFromProperty(property, expose.value(QStringLiteral("label")).toString()),
+                                           endpoint);
             button.kind = ChannelKind::ButtonEvent;
             button.dataType = ChannelDataType::Int;
             button.flags = flags;
@@ -2157,7 +2180,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
                 button.id = QStringLiteral("button%1").arg(buttonId);
                 if (!endpoint.isEmpty())
                     button.id += QStringLiteral("_") + endpoint;
-                button.name = QStringLiteral("Button %1").arg(buttonId);
+                button.name = labelForEndpoint(QStringLiteral("Button %1").arg(buttonId), endpoint);
                 button.kind = ChannelKind::ButtonEvent;
                 button.dataType = ChannelDataType::Int;
                 button.flags = flags;
@@ -2180,7 +2203,7 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
             dial.id = QStringLiteral("dial");
             if (!endpoint.isEmpty())
                 dial.id += QStringLiteral("_") + endpoint;
-            dial.name = QStringLiteral("Dial Rotation");
+            dial.name = labelForEndpoint(QStringLiteral("Dial Rotation"), endpoint);
             dial.kind = ChannelKind::RelativeRotation;
             dial.dataType = ChannelDataType::Int;
             dial.flags = flags;
@@ -2202,7 +2225,8 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
 
     Channel channel;
     channel.id = channelId;
-    channel.name = labelFromProperty(property, expose.value(QStringLiteral("label")).toString());
+    channel.name = labelForEndpoint(labelFromProperty(property, expose.value(QStringLiteral("label")).toString()),
+                                    endpoint);
     if (mapIt != kMappings.end()) {
         channel.kind = mapIt->kind;
         channel.dataType = mapIt->dataType;
