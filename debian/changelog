@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git20260611.6606fa0-1) trixie; urgency=medium
+
+  * Rebuild package from current logging cleanup snapshot.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Thu, 11 Jun 2026 00:00:00 +0200
+
 phi-adapter-z2m (0.0~git20260316-1) trixie; urgency=medium
 
   * Rebuild package from the current adapter snapshot.
