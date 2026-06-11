@@ -4,7 +4,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
-#include <QLoggingCategory>
 #include <QRegularExpression>
 #include <QSet>
 #include <QtGlobal>
@@ -12,8 +11,6 @@
 #include <algorithm>
 
 #include "mqttclient.h"
-
-Q_LOGGING_CATEGORY(adapterLog, "phi-core.adapters.z2m")
 
 namespace {
 
@@ -424,7 +421,6 @@ bool Z2mAdapter::start(QString &errorString)
         m_client = new ::phicore::MqttClient(this);
         m_client->setClientId(QStringLiteral("phi-core-z2m-%1").arg(adapter().id));
         connect(m_client, &::phicore::MqttClient::connected, this, [this]() {
-            qCInfo(adapterLog) << "Z2M MQTT connected, subscribing";
             m_mqttConnected = true;
             updateConnectionState();
             ensureSubscriptions();
@@ -444,22 +440,13 @@ bool Z2mAdapter::start(QString &errorString)
         connect(m_client, &::phicore::MqttClient::errorOccurred, this, [this](int code, const QString &message) {
             if (m_client->state() == ::phicore::MqttClient::State::Connected)
                 return;
-            qCWarning(adapterLog) << "Z2M MQTT error:" << code << message;
         });
     }
 
-    qCInfo(adapterLog) << "Starting Z2M adapter for" << adapter().id
-                       << "host" << adapter().ip.trimmed()
-                       << "port" << (adapter().port > 0 ? adapter().port : kDefaultPort)
-                       << "baseTopic" << m_baseTopic
-                       << "retryIntervalMs" << m_retryIntervalMs;
-
     if (adapter().ip.trimmed().isEmpty()) {
-        qCWarning(adapterLog) << "Z2mAdapter: IP not configured; staying disconnected";
     }
 
     connectToBroker();
-    qCInfo(adapterLog) << "Z2M start() finished for" << adapter().id;
     return true;
 }
 
@@ -531,7 +518,6 @@ void Z2mAdapter::requestFullSync()
     if (m_client && m_client->state() == ::phicore::MqttClient::State::Connected) {
         const QByteArray requestPayload = QByteArrayLiteral("{}");
         const QString topic = QStringLiteral("%1/bridge/request/devices").arg(m_baseTopic);
-        qCInfo(adapterLog) << "Z2M full sync requested via" << topic;
         m_client->publish(topic, requestPayload);
     }
     if (!m_devices.isEmpty()) {
@@ -611,9 +597,7 @@ void Z2mAdapter::updateChannelState(const QString &deviceExternalId,
             const QString topic = QStringLiteral("%1/%2/get").arg(m_baseTopic, mqttId);
             const qint32 msgId = m_client->publish(topic, QByteArrayLiteral("{}"));
             if (msgId < 0) {
-                qCWarning(adapterLog) << "Z2M post-set refresh publish failed for" << mqttId;
             } else {
-                qCInfo(adapterLog) << "Z2M post-set refresh requested for" << mqttId;
             }
         });
     }
@@ -831,12 +815,6 @@ void Z2mAdapter::ensureSubscriptions()
 
 void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &topic)
 {
-    if (topic.endsWith(QStringLiteral("/bridge/devices"))
-        || topic.endsWith(QStringLiteral("/bridge/response/devices"))) {
-        const QString payloadText = QString::fromUtf8(message);
-        qCInfo(adapterLog) << "Z2M received bridge/devices payload bytes:" << message.size();
-        qCInfo(adapterLog).noquote() << "Z2M bridge/devices payload:" << payloadText;
-    }
     const QString prefix = m_baseTopic + QLatin1Char('/');
     if (!topic.startsWith(prefix))
         return;
@@ -847,14 +825,12 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             const QString payloadText = QString::fromUtf8(message).trimmed().toLower();
             if (payloadText == QStringLiteral("{\"state\":\"offline\"}")
                 || payloadText == QStringLiteral("offline")) {
-                qCInfo(adapterLog) << "Z2M bridge/state -> offline";
                 m_bridgeOnline = false;
                 updateConnectionState();
                 return;
             }
             if (payloadText == QStringLiteral("{\"state\":\"online\"}")
                 || payloadText == QStringLiteral("online")) {
-                qCInfo(adapterLog) << "Z2M bridge/state -> online";
                 m_bridgeOnline = true;
                 updateConnectionState();
                 if (!m_lastSeenRequested) {
@@ -868,7 +844,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
                     m_client->publish(topic,
                                       QJsonDocument(payload).toJson(QJsonDocument::Compact));
                     m_lastSeenRequested = true;
-                    qCInfo(adapterLog) << "Z2M options requested: last_seen=epoch";
                 }
                 return;
             }
@@ -877,7 +852,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/health payload:" << err.errorString();
                 return;
             }
             QJsonObject metaPatch;
@@ -889,7 +863,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/response/device/rename payload:" << err.errorString();
                 return;
             }
             const QJsonObject resp = doc.object();
@@ -936,22 +909,17 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/response/options payload:" << err.errorString();
                 return;
             }
             const QJsonObject resp = doc.object();
             const QString status = resp.value(QStringLiteral("status")).toString().trimmed().toLower();
             const bool restartRequired = resp.value(QStringLiteral("restart_required")).toBool(false);
-            qCInfo(adapterLog) << "Z2M options response"
-                               << "status" << (status.isEmpty() ? QStringLiteral("unknown") : status)
-                               << "restart_required" << restartRequired;
             return;
         }
         if (suffix == QStringLiteral("bridge/response/device/get")) {
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/response/device/get payload:" << err.errorString();
                 return;
             }
             const QJsonObject resp = doc.object();
@@ -978,7 +946,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/info payload:" << err.errorString();
                 return;
             }
             handleBridgeInfoPayload(doc.object(), QDateTime::currentMSecsSinceEpoch());
@@ -989,7 +956,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
             if (err.error != QJsonParseError::NoError) {
-                qCWarning(adapterLog) << "Z2M: failed to parse bridge/devices payload:" << err.errorString();
                 return;
             }
             QJsonArray devices;
@@ -1007,7 +973,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
                 }
             }
             if (devices.isEmpty()) {
-                qCWarning(adapterLog) << "Z2M: bridge/devices payload has no device array";
                 return;
             }
             const bool fullSnapshot = (suffix == QStringLiteral("bridge/devices"));
@@ -1021,8 +986,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
         if (slashIndex <= 0)
             return;
         const QString deviceId = suffix.left(slashIndex);
-        qCInfo(adapterLog).noquote()
-            << "Z2M availability payload for" << deviceId << ":" << QString::fromUtf8(message).trimmed();
         QString payloadText = QString::fromUtf8(message).trimmed();
         if (payloadText.startsWith(QLatin1Char('{'))) {
             QJsonParseError err;
@@ -1058,33 +1021,24 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
         }
         if (!payloadObj.isEmpty()) {
             payloadObj.insert(QStringLiteral("_phi_action_topic"), true);
-            qCInfo(adapterLog).noquote()
-                << "Z2M action payload for" << deviceId << ":" << payloadText;
             handleDeviceStatePayload(deviceId, payloadObj, QDateTime::currentMSecsSinceEpoch());
         }
         return;
     }
     if (suffix.contains(QLatin1Char('/'))) {
-        qCInfo(adapterLog).noquote()
-            << "Z2M payload ignored for topic" << suffix << ":" << QString::fromUtf8(message).trimmed();
         return;
     }
 
     QJsonParseError err;
     const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        qCInfo(adapterLog).noquote()
-            << "Z2M state payload ignored for" << suffix << ":" << QString::fromUtf8(message).trimmed();
         return;
     }
-    qCInfo(adapterLog).noquote()
-        << "Z2M state payload for" << suffix << ":" << QString::fromUtf8(message).trimmed();
     handleDeviceStatePayload(suffix, doc.object(), QDateTime::currentMSecsSinceEpoch());
 }
 
 void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices, bool fullSnapshot)
 {
-    qCInfo(adapterLog) << "Z2M bridge/devices payload count:" << devices.size();
     QSet<QString> seen;
     for (const QJsonValue &value : devices) {
         if (!value.isObject())
@@ -1111,9 +1065,6 @@ void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices, bool full
         }
         const QJsonObject def = obj.value(QStringLiteral("definition")).toObject();
         const QJsonArray exposes = def.value(QStringLiteral("exposes")).toArray();
-        qCInfo(adapterLog) << "Z2M device" << deviceId
-                           << "exposesCount" << exposes.size()
-                           << "type" << obj.value(QStringLiteral("type")).toString();
         seen.insert(deviceId);
         auto availabilityFromValue = [](const QJsonValue &val) -> QString {
             if (val.isString())
@@ -1217,8 +1168,6 @@ void Z2mAdapter::handleBridgeDevicesPayload(const QJsonArray &devices, bool full
                 } else if (state == QStringLiteral("offline")) {
                     status = ConnectivityStatus::Disconnected;
                 }
-                qCInfo(adapterLog) << "Z2M availability default for" << externalId << "->"
-                                   << static_cast<int>(status);
                 emit channelStateUpdated(externalId, channelId,
                                          static_cast<int>(status),
                                          QDateTime::currentMSecsSinceEpoch());
@@ -1424,11 +1373,6 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
                     const int count = m_buttonMultiPressCounts.value(pressKey, 0);
                     if (count > 0 && lastTs > 0 && (tsMs - lastTs) >= kButtonMultiPressResetGapMs)
                         finalizePendingButtonShortPress(pressKey, externalId, binding.channelId, lastTs);
-
-                    qCInfo(adapterLog).noquote()
-                        << "Z2M channel update" << externalId
-                        << binding.channelId << "value"
-                        << static_cast<int>(ButtonEventCode::InitialPress);
                     emit channelStateUpdated(externalId,
                                              binding.channelId,
                                              static_cast<int>(ButtonEventCode::InitialPress),
@@ -1485,10 +1429,6 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
                     m_buttonLastEventTs.insert(pressKey, tsMs);
                 }
             }
-
-            qCInfo(adapterLog).noquote()
-                << "Z2M channel update" << externalId
-                << binding.channelId << "value" << outValue.toString();
             emit channelStateUpdated(externalId, binding.channelId, outValue, tsMs);
             if (binding.actionIsDial) {
                 const QString timerKey = externalId + QStringLiteral(":") + binding.channelId;
@@ -1666,9 +1606,6 @@ void Z2mAdapter::handleDeviceStatePayload(const QString &deviceId,
 
         if (!outValue.isValid())
             continue;
-        qCInfo(adapterLog).noquote()
-            << "Z2M channel update" << externalId
-            << binding.channelId << "value" << outValue.toString();
         emit channelStateUpdated(externalId, binding.channelId, outValue, tsMs);
     }
 }
@@ -2012,10 +1949,6 @@ Z2mAdapter::Z2mDeviceEntry Z2mAdapter::buildDeviceEntry(const QJsonObject &obj) 
     entry.bindingsByChannel.insert(updateChannel.id, updateBinding);
 
     for (const Channel &channel : entry.channels) {
-        qCInfo(adapterLog).noquote()
-            << "Z2M channel defined" << entry.device.id
-            << channel.id << "kind" << static_cast<int>(channel.kind)
-            << "dataType" << static_cast<int>(channel.dataType);
     }
 
     return entry;

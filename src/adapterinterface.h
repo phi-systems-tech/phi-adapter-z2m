@@ -3,7 +3,6 @@
 
 #include <QObject>
 #include <QVariant>
-#include <QLoggingCategory>
 #include <QThread>
 #include <QDateTime>
 #include <QJsonObject>
@@ -16,8 +15,6 @@
 #include "scene.h"
 #include "adapterconfig.h"
 
-Q_DECLARE_LOGGING_CATEGORY(adapterLog)
-
 namespace phicore::adapter {
 
 class AdapterInterface : public QObject
@@ -26,7 +23,7 @@ class AdapterInterface : public QObject
 
 public:
     explicit AdapterInterface(QObject *parent = nullptr) : QObject(parent) {}
-    ~AdapterInterface() override { qCDebug(adapterLog) << "~AdapterInterface() -" << m_info.id; }
+    ~AdapterInterface() override = default;
 
     void assignAdapter(const phicore::adapter::Adapter &info) { setAdapter(info); }
     void startAdapterAsync() { startAsync(); }

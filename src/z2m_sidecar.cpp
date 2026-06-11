@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <iostream>
 
 #include <QDateTime>
 #include <QEventLoop>
@@ -87,7 +86,6 @@ void Z2mSidecar::stop()
 
 void Z2mSidecar::onConnected()
 {
-    std::cerr << "z2m-ipc connected" << '\n';
 }
 
 void Z2mSidecar::onDisconnected()
@@ -98,8 +96,6 @@ void Z2mSidecar::onDisconnected()
 
     v1::Utf8String err;
     sendConnectionStateChanged(false, &err);
-
-    std::cerr << "z2m-ipc disconnected" << '\n';
 }
 
 void Z2mSidecar::onConfigChanged(const phi::ConfigChangedRequest &request)
@@ -113,11 +109,6 @@ void Z2mSidecar::onConfigChanged(const phi::ConfigChangedRequest &request)
 
     m_started = false;
     m_runtime->startAdapterAsync();
-
-    std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
-              << " externalId=" << request.adapter.externalId
-              << " pluginType=" << request.adapter.pluginType
-              << '\n';
 }
 
 void Z2mSidecar::onChannelInvoke(const phi::ChannelInvokeRequest &request)
@@ -331,10 +322,8 @@ void Z2mSidecar::wireRuntimeSignals()
                      [this](const QList<runtimeapi::Scene> &scenes) {
                          v1::Utf8String err;
                          const auto v1Scenes = toV1(scenes);
-                         for (const auto &scene : v1Scenes) {
-                             if (!sendSceneUpdated(scene, &err))
-                                 std::cerr << "failed to send scene updated event: " << err << '\n';
-                         }
+                         for (const auto &scene : v1Scenes)
+                             sendSceneUpdated(scene, &err);
                      });
 
     QObject::connect(m_runtime.get(),
@@ -518,16 +507,16 @@ std::int64_t Z2mSidecar::nowMs()
 
 void Z2mSidecar::submitCmdResult(CmdResponse response, const char *context)
 {
+    (void)context;
     v1::Utf8String err;
-    if (!sendResult(response, &err))
-        std::cerr << "failed to send " << context << " result: " << err << '\n';
+    sendResult(response, &err);
 }
 
 void Z2mSidecar::submitActionResult(ActionResponse response, const char *context)
 {
+    (void)context;
     v1::Utf8String err;
-    if (!sendResult(response, &err))
-        std::cerr << "failed to send " << context << " result: " << err << '\n';
+    sendResult(response, &err);
 }
 
 } // namespace phicore::z2m::ipc

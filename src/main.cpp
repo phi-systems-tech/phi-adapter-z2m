@@ -133,8 +133,7 @@ public:
         }
 
         v1::Utf8String err;
-        if (!sendResult(response, &err))
-            std::cerr << "failed to send factory action result: " << err << '\n';
+        sendResult(response, &err);
     }
 
     v1::Utf8String pluginType() const override
