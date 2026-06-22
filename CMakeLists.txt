@@ -57,7 +57,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk)
         if(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK AND EXISTS "${PHI_ADAPTER_SDK_SOURCE_DIR}/CMakeLists.txt")
             message(STATUS "Using local phi-adapter-sdk from: ${PHI_ADAPTER_SDK_SOURCE_DIR}")
-            add_subdirectory("${PHI_ADAPTER_SDK_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk")
+            add_subdirectory("${PHI_ADAPTER_SDK_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk" EXCLUDE_FROM_ALL)
         else()
             message(STATUS "Using installed phi-adapter-sdk via find_package")
             find_package(phi-adapter-sdk CONFIG REQUIRED)
@@ -70,7 +70,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk-qt)
         if(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK AND EXISTS "${PHI_ADAPTER_SDK_QT_SOURCE_DIR}/CMakeLists.txt")
             message(STATUS "Using local phi-adapter-sdk-qt from: ${PHI_ADAPTER_SDK_QT_SOURCE_DIR}")
-            add_subdirectory("${PHI_ADAPTER_SDK_QT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk-qt")
+            add_subdirectory("${PHI_ADAPTER_SDK_QT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk-qt" EXCLUDE_FROM_ALL)
         else()
             message(STATUS "Using installed phi-adapter-sdk-qt via find_package")
             find_package(phi-adapter-sdk-qt CONFIG REQUIRED)
@@ -122,6 +122,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
 
     set_target_properties(phi_adapter_z2m_ipc PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/adapters"
+        INSTALL_RPATH "$ORIGIN"
     )
 
     add_custom_command(TARGET phi_adapter_z2m_ipc POST_BUILD
@@ -130,8 +131,17 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
             "$<TARGET_FILE_DIR:phi_adapter_z2m_ipc>/z2m-config.json"
     )
 
-    install(TARGETS phi_adapter_z2m_ipc
+    set(PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_z2m_ipc)
+    if(TARGET phi_adapter_sdk)
+        list(APPEND PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_sdk)
+    endif()
+    if(TARGET phi_adapter_sdk_qt)
+        list(APPEND PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_sdk_qt)
+    endif()
+
+    install(TARGETS ${PHI_ADAPTER_Z2M_INSTALL_TARGETS}
         RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
     )
 endif()
 
