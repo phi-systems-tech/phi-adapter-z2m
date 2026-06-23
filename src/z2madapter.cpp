@@ -33,6 +33,35 @@ phicore::adapter::ChannelFlags forceReadOnly(phicore::adapter::ChannelFlags flag
     return flags;
 }
 
+bool colorFromVariant(const QVariant &value, phicore::adapter::Color *out)
+{
+    if (!out)
+        return false;
+    if (value.canConvert<phicore::adapter::Color>()) {
+        *out = value.value<phicore::adapter::Color>();
+        return true;
+    }
+
+    const QVariantMap map = value.toMap();
+    if (map.isEmpty())
+        return false;
+
+    bool okR = false;
+    bool okG = false;
+    bool okB = false;
+    const double r = map.value(QStringLiteral("r")).toDouble(&okR);
+    const double g = map.value(QStringLiteral("g")).toDouble(&okG);
+    const double b = map.value(QStringLiteral("b")).toDouble(&okB);
+    if (!okR || !okG || !okB)
+        return false;
+
+    const bool looks255 = r > 1.0 || g > 1.0 || b > 1.0;
+    *out = phicore::adapter::makeColor(looks255 ? r / 255.0 : r,
+                                       looks255 ? g / 255.0 : g,
+                                       looks255 ? b / 255.0 : b);
+    return true;
+}
+
 QString enumLabelFor(const QString &enumName, int value)
 {
     if (enumName.compare(QStringLiteral("RockerMode"), Qt::CaseInsensitive) == 0) {
@@ -583,6 +612,12 @@ void Z2mAdapter::updateChannelState(const QString &deviceExternalId,
         response.error = errorString;
         emit cmdResult(response);
         return;
+    }
+
+    if (binding.kind == ChannelKind::ColorRGB) {
+        phicore::adapter::Color color;
+        if (colorFromVariant(value, &color))
+            emit channelStateUpdated(deviceExternalId, binding.channelId, QVariant::fromValue(color), QDateTime::currentMSecsSinceEpoch());
     }
 
     // Debounced post-set refresh to read back all reported channels.
@@ -2623,11 +2658,11 @@ bool Z2mAdapter::buildCommandPayload(const QString &deviceId,
         break;
     }
     case ChannelKind::ColorRGB: {
-        if (!value.canConvert<phicore::adapter::Color>()) {
+        phicore::adapter::Color color;
+        if (!colorFromVariant(value, &color)) {
             errorString = QStringLiteral("Invalid color value.");
             return false;
         }
-        const phicore::adapter::Color color = value.value<phicore::adapter::Color>();
         QJsonObject colorObj;
         if (binding.colorMode == QStringLiteral("xy")) {
             double x = 0.0;

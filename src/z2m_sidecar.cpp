@@ -334,11 +334,22 @@ void Z2mSidecar::wireRuntimeSignals()
                             const QVariant &value,
                             qint64 tsMs) {
                          v1::Utf8String err;
-                         sendChannelStateUpdated(deviceExternalId.toStdString(),
-                                                 channelExternalId.toStdString(),
-                                                 toScalarValue(value),
-                                                 tsMs,
-                                                 &err);
+                         if (value.canConvert<runtimeapi::Color>()) {
+                             const runtimeapi::Color color = value.value<runtimeapi::Color>();
+                             sendChannelColorStateUpdated(deviceExternalId.toStdString(),
+                                                          channelExternalId.toStdString(),
+                                                          color.r,
+                                                          color.g,
+                                                          color.b,
+                                                          tsMs,
+                                                          &err);
+                         } else {
+                             sendChannelStateUpdated(deviceExternalId.toStdString(),
+                                                     channelExternalId.toStdString(),
+                                                     toScalarValue(value),
+                                                     tsMs,
+                                                     &err);
+                         }
                      });
 
     QObject::connect(m_runtime.get(),
