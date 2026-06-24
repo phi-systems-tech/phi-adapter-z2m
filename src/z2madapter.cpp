@@ -452,6 +452,7 @@ bool Z2mAdapter::start(QString &errorString)
         connect(m_client, &::phicore::MqttClient::connected, this, [this]() {
             m_mqttConnected = true;
             updateConnectionState();
+            scheduleConnectionStateRefresh();
             ensureSubscriptions();
             const QByteArray requestPayload = QByteArrayLiteral("{}");
             m_client->publish(QStringLiteral("%1/bridge/request/info").arg(m_baseTopic),
@@ -476,6 +477,7 @@ bool Z2mAdapter::start(QString &errorString)
     }
 
     connectToBroker();
+    scheduleConnectionStateRefresh();
     return true;
 }
 
@@ -525,6 +527,7 @@ void Z2mAdapter::adapterConfigUpdated()
     disconnectFromBroker();
     applyConfig();
     connectToBroker();
+    scheduleConnectionStateRefresh();
 }
 
 void Z2mAdapter::updateStaticConfig(const QJsonObject &config)
@@ -758,9 +761,9 @@ void Z2mAdapter::invokeAdapterAction(const QString &actionId,
     emit actionResult(resp);
 }
 
-void Z2mAdapter::setConnected(bool connected)
+void Z2mAdapter::setConnected(bool connected, bool forceNotify)
 {
-    if (m_connected == connected)
+    if (m_connected == connected && !forceNotify)
         return;
     m_connected = connected;
     if (m_connected)
@@ -768,9 +771,16 @@ void Z2mAdapter::setConnected(bool connected)
     emit connectionStateChanged(m_connected);
 }
 
-void Z2mAdapter::updateConnectionState()
+void Z2mAdapter::updateConnectionState(bool forceNotify)
 {
-    setConnected(m_mqttConnected && m_bridgeOnline);
+    setConnected(m_mqttConnected && m_bridgeOnline, forceNotify);
+}
+
+void Z2mAdapter::scheduleConnectionStateRefresh()
+{
+    QTimer::singleShot(1500, this, [this]() {
+        updateConnectionState(true);
+    });
 }
 
 void Z2mAdapter::applyConfig()

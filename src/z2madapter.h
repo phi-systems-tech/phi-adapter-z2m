@@ -74,8 +74,9 @@ private:
         QMultiHash<QString, QString> channelByProperty;
     };
 
-    void setConnected(bool connected);
-    void updateConnectionState();
+    void setConnected(bool connected, bool forceNotify = false);
+    void updateConnectionState(bool forceNotify = false);
+    void scheduleConnectionStateRefresh();
     void applyConfig();
     void connectToBroker();
     void disconnectFromBroker();
