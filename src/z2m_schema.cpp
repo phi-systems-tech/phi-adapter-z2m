@@ -298,6 +298,16 @@ phicore::adapter::v1::AdapterCapabilities capabilities()
     restart.metaJson = R"({"placement":"card","kind":"command","requiresAck":true})";
     caps.instanceActions.push_back(restart);
 
+    v1::AdapterActionDescriptor deleteDevice;
+    deleteDevice.id = "device.delete";
+    deleteDevice.label = "Delete device";
+    deleteDevice.description = "Remove a device from Zigbee2MQTT.";
+    deleteDevice.danger = true;
+    deleteDevice.confirmJson =
+        R"({"title":"Delete device?","message":"This removes the device from Zigbee2MQTT. Continue?","okText":"Delete","cancelText":"Cancel","danger":true})";
+    deleteDevice.metaJson = R"({"placement":"device","kind":"command","requiresAck":true})";
+    caps.instanceActions.push_back(deleteDevice);
+
     caps.defaultsJson = R"({"host":"localhost","port":1883,"retryIntervalMs":10000,"baseTopic":"zigbee2mqtt"})";
     return caps;
 }

@@ -715,8 +715,9 @@ void Z2mAdapter::invokeAdapterAction(const QString &actionId,
                                      const QJsonObject &params,
                                      CmdId cmdId)
 {
-    Q_UNUSED(params);
-    if (actionId != QStringLiteral("permitJoin") && actionId != QStringLiteral("restartZ2M")) {
+    if (actionId != QStringLiteral("permitJoin")
+        && actionId != QStringLiteral("restartZ2M")
+        && actionId != QStringLiteral("device.delete")) {
         AdapterInterface::invokeAdapterAction(actionId, params, cmdId);
         return;
     }
@@ -735,6 +736,43 @@ void Z2mAdapter::invokeAdapterAction(const QString &actionId,
     if (!m_bridgeOnline) {
         resp.status = CmdStatus::Failure;
         resp.error = QStringLiteral("Z2M bridge is offline.");
+        emit actionResult(resp);
+        return;
+    }
+
+    if (actionId == QStringLiteral("device.delete")) {
+        const QString externalId = params.value(QStringLiteral("externalId")).toString().trimmed();
+        if (externalId.isEmpty()) {
+            resp.status = CmdStatus::InvalidArgument;
+            resp.error = QStringLiteral("Missing device externalId.");
+            emit actionResult(resp);
+            return;
+        }
+
+        const QString mqttId = m_mqttByExternal.value(externalId, externalId);
+        if (!m_devices.contains(mqttId)) {
+            resp.status = CmdStatus::InvalidArgument;
+            resp.error = QStringLiteral("Device not found.");
+            emit actionResult(resp);
+            return;
+        }
+
+        QJsonObject payload;
+        payload.insert(QStringLiteral("id"), mqttId);
+        const QString topic = QStringLiteral("%1/bridge/request/device/remove").arg(m_baseTopic);
+        const qint32 msgId = m_client->publish(topic,
+                                               QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        if (msgId < 0) {
+            resp.status = CmdStatus::Failure;
+            resp.error = QStringLiteral("MQTT publish failed.");
+            emit actionResult(resp);
+            return;
+        }
+
+        emit deviceRemoved(externalId);
+        m_mqttByExternal.remove(externalId);
+        m_devices.remove(mqttId);
+        resp.status = CmdStatus::Success;
         emit actionResult(resp);
         return;
     }
