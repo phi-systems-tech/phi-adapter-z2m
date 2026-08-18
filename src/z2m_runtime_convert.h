@@ -5,13 +5,13 @@
 #include <QJsonObject>
 #include <QVariant>
 
-#include "adapterconfig.h"
-#include "channel.h"
-#include "device.h"
-#include "group.h"
-#include "room.h"
-#include "scene.h"
-#include "types.h"
+#include "phi/adapter/qt/adapterconfig.h"
+#include "phi/adapter/qt/channel.h"
+#include "phi/adapter/qt/device.h"
+#include "phi/adapter/qt/group.h"
+#include "phi/adapter/qt/room.h"
+#include "phi/adapter/qt/scene.h"
+#include "phi/adapter/qt/types.h"
 #include "phi/adapter/sdk/sidecar.h"
 
 namespace phicore::z2m::ipc {

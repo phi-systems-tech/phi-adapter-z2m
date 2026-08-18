@@ -7,13 +7,13 @@
 #include <QDateTime>
 #include <QJsonObject>
 
-#include "device.h"
-#include "channel.h"
-#include "room.h"
-#include "group.h"
-#include "types.h"
-#include "scene.h"
-#include "adapterconfig.h"
+#include "phi/adapter/qt/device.h"
+#include "phi/adapter/qt/channel.h"
+#include "phi/adapter/qt/room.h"
+#include "phi/adapter/qt/group.h"
+#include "phi/adapter/qt/types.h"
+#include "phi/adapter/qt/scene.h"
+#include "phi/adapter/qt/adapterconfig.h"
 
 namespace phicore::adapter {
 

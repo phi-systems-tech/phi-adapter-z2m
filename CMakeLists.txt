@@ -83,14 +83,6 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     add_executable(phi_adapter_z2m_ipc
         src/main.cpp
         src/adapterinterface.h
-        src/adapterconfig.h
-        src/channel.h
-        src/color.h
-        src/device.h
-        src/group.h
-        src/room.h
-        src/scene.h
-        src/types.h
         src/z2m_runtime_convert.cpp
         src/z2m_runtime_convert.h
         src/z2m_schema.cpp
@@ -117,6 +109,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
                 Qt6::Network
                 phi::adapter-sdk
                 phi::adapter-sdk-qt
+                phi::adapter-contract-qt
                 mosquitto::mosquitto
         )
 

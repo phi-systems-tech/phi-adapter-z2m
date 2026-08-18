@@ -9,7 +9,7 @@
 #include "mqttclient.h"
 
 #include "adapterinterface.h"
-#include "color.h"
+#include "phi/adapter/qt/color.h"
 
 namespace phicore::adapter {
 
