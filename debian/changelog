@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git20260819.9d8394b-1) trixie; urgency=medium
+
+  * Drive the sidecar from the SDK main loop (no poll interval, no idle wakeups).
+  * Rebuild against phi-adapter-sdk 0.3.0 (ABI change).
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 19 Aug 2026 13:56:11 +0200
+
 phi-adapter-z2m (0.0~git20260818.f2c842e-1) trixie; urgency=medium
 
   * Use shared Qt contract wrapper from phi-adapter-sdk-qt.
