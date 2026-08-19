@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <thread>
 
@@ -33,7 +35,30 @@ std::int64_t nowMs()
     return QDateTime::currentMSecsSinceEpoch();
 }
 
-ActionResponse factoryProbe(std::uint64_t cmdId, const QJsonObject &params)
+// Sliced connect wait: a shutdown must not have to sit out the full connect
+// budget (F-33). `cancelled` is the factory's stopRequested().
+bool waitForConnectedCancellable(QTcpSocket &socket,
+                                 int timeoutMs,
+                                 const std::function<bool()> &cancelled)
+{
+    constexpr int kSliceMs = 100;
+    int waitedMs = 0;
+    while (waitedMs < timeoutMs) {
+        if (cancelled && cancelled())
+            return false;
+        const int slice = std::min(kSliceMs, timeoutMs - waitedMs);
+        if (socket.waitForConnected(slice))
+            return true;
+        if (socket.state() == QAbstractSocket::UnconnectedState)
+            return false;
+        waitedMs += slice;
+    }
+    return false;
+}
+
+ActionResponse factoryProbe(std::uint64_t cmdId,
+                            const QJsonObject &params,
+                            const std::function<bool()> &cancelled)
 {
     const QJsonObject factoryAdapter = params.value("factoryAdapter").toObject();
 
@@ -81,7 +106,7 @@ ActionResponse factoryProbe(std::uint64_t cmdId, const QJsonObject &params)
 
     QTcpSocket socket;
     socket.connectToHost(host, static_cast<quint16>(port));
-    if (!socket.waitForConnected(2000)) {
+    if (!waitForConnectedCancellable(socket, 2000, cancelled)) {
         const QString error = socket.errorString().trimmed().isEmpty()
             ? QStringLiteral("Connection failed")
             : socket.errorString().trimmed();
@@ -138,7 +163,8 @@ public:
         } else {
             response = factoryProbe(
                 request.cmdId,
-                QJsonDocument::fromJson(QByteArray::fromStdString(request.paramsJson)).object());
+                QJsonDocument::fromJson(QByteArray::fromStdString(request.paramsJson)).object(),
+                [this]() { return stopRequested(); });
         }
 
         v1::Utf8String err;
