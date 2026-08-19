@@ -1,4 +1,4 @@
-phi-adapter-z2m (0.0~git20260819.1e38147-1) trixie; urgency=medium
+phi-adapter-z2m (0.0~git202608191934.1e38147-1) trixie; urgency=medium
 
   * Slice the probe's blocking connect into cancellable 100ms waits so shutdown
     does not have to sit it out (F-33).
