@@ -112,6 +112,13 @@ public:
         return phi::qt::createInstanceExecutionBackend();
     }
 
+    // factoryProbe() blocks in QTcpSocket::waitForConnected for up to 2s; on the
+    // host poll thread that stalled IPC for every instance of this sidecar.
+    std::unique_ptr<phi::InstanceExecutionBackend> createFactoryExecutionBackend() override
+    {
+        return phi::qt::createFactoryExecutionBackend();
+    }
+
     std::unique_ptr<phi::AdapterInstance> createInstance(
         const v1::ExternalId &externalId) override
     {
