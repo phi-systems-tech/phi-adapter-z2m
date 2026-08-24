@@ -10,6 +10,8 @@
 #include <QStringList>
 #include <algorithm>
 
+#include <phi/adapter/qt/enumnames.h>
+
 #include "mqttclient.h"
 
 namespace {
@@ -60,41 +62,6 @@ bool colorFromVariant(const QVariant &value, phicore::adapter::Color *out)
                                        looks255 ? g / 255.0 : g,
                                        looks255 ? b / 255.0 : b);
     return true;
-}
-
-QString enumLabelFor(const QString &enumName, int value)
-{
-    if (enumName.compare(QStringLiteral("RockerMode"), Qt::CaseInsensitive) == 0) {
-        switch (value) {
-        case static_cast<int>(phicore::adapter::RockerMode::SingleRocker):
-            return QStringLiteral("SingleRocker");
-        case static_cast<int>(phicore::adapter::RockerMode::DualRocker):
-            return QStringLiteral("DualRocker");
-        case static_cast<int>(phicore::adapter::RockerMode::SinglePush):
-            return QStringLiteral("SinglePush");
-        case static_cast<int>(phicore::adapter::RockerMode::DualPush):
-            return QStringLiteral("DualPush");
-        default:
-            return QString();
-        }
-    }
-    if (enumName.compare(QStringLiteral("SensitivityLevel"), Qt::CaseInsensitive) == 0) {
-        switch (value) {
-        case static_cast<int>(phicore::adapter::SensitivityLevel::Low):
-            return QStringLiteral("Low");
-        case static_cast<int>(phicore::adapter::SensitivityLevel::Medium):
-            return QStringLiteral("Medium");
-        case static_cast<int>(phicore::adapter::SensitivityLevel::High):
-            return QStringLiteral("High");
-        case static_cast<int>(phicore::adapter::SensitivityLevel::VeryHigh):
-            return QStringLiteral("VeryHigh");
-        case static_cast<int>(phicore::adapter::SensitivityLevel::Max):
-            return QStringLiteral("Max");
-        default:
-            return QString();
-        }
-    }
-    return QString();
 }
 
 bool isKnownEnumName(const QString &name, const char *enumName)
@@ -353,6 +320,10 @@ QHash<QString, int> buildStableEnumMap(const QStringList &rawKeys, const QJsonOb
     return map;
 }
 
+// The other direction is this adapter's job and stays here: zigbee2mqtt has its
+// own words for these ("single_rocker", "very_high"), and turning a foreign
+// system's vocabulary into contract values is what an adapter is for. The SDK
+// parses contract names, which is a different question.
 std::optional<int> mapRockerMode(const QString &raw)
 {
     const QString key = raw.trimmed().toLower();
@@ -2413,7 +2384,10 @@ void Z2mAdapter::addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry 
             opt.value = QString::number(mappedValue);
             QString label;
             if (!enumName.isEmpty()) {
-                label = enumLabelFor(enumName, mappedValue);
+                // The contract names its own values. This used to be a second
+                // copy of that table, listing two enums out of the SDK's ten
+                // and going quiet for the rest.
+                label = phicore::adapter::enumNameFor(enumName, mappedValue, false);
             }
             if (label.isEmpty())
                 label = key;
