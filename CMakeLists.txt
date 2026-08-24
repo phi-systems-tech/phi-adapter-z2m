@@ -124,6 +124,36 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
             "$<TARGET_FILE_DIR:phi_adapter_z2m_ipc>/z2m-config.json"
     )
 
+    # The conversion this adapter is mostly made of, tested without a broker.
+    # `ctest` from the build directory runs it; nothing about it is installed.
+    enable_testing()
+    add_executable(z2m_convert_tests
+        tests/z2m_convert_tests.cpp
+        # The interface is a QObject declared in a header, so its moc has to be
+        # generated for this target too.
+        src/adapterinterface.h
+        src/z2m_runtime_convert.cpp
+        src/z2m_schema.cpp
+        src/z2madapter.cpp
+        src/mqtt/mqttclient.cpp
+    )
+    target_compile_features(z2m_convert_tests PRIVATE cxx_std_20)
+    target_include_directories(z2m_convert_tests
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mqtt
+    )
+    target_link_libraries(z2m_convert_tests
+        PRIVATE
+            Qt6::Core
+            Qt6::Network
+            phi::adapter-sdk
+            phi::adapter-sdk-qt
+            phi::adapter-contract-qt
+            mosquitto::mosquitto
+    )
+    add_test(NAME z2m_convert_tests COMMAND z2m_convert_tests)
+
     set(PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_z2m_ipc)
     if(TARGET phi_adapter_sdk)
         list(APPEND PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_sdk)

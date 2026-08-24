@@ -66,6 +66,11 @@ private:
         QHash<int, QString> enumValueToRaw;
     };
 
+    // What a zigbee2mqtt device turns into, and the turning of it. Reachable
+    // from a subclass so a test can hand it a payload and look at the result -
+    // that conversion is most of what this adapter is, and all of it happens
+    // before anything touches a broker.
+protected:
     struct Z2mDeviceEntry {
         Device device;
         QString mqttId;
@@ -73,6 +78,8 @@ private:
         QHash<QString, Z2mChannelBinding> bindingsByChannel;
         QMultiHash<QString, QString> channelByProperty;
     };
+
+private:
 
     void setConnected(bool connected, bool forceNotify = false);
     void updateConnectionState(bool forceNotify = false);
@@ -90,7 +97,10 @@ private:
     void handleDeviceStatePayload(const QString &deviceId, const QJsonObject &payload, qint64 tsMs);
     void handleAvailabilityPayload(const QString &deviceId, const QString &payload, qint64 tsMs);
 
+protected:
     Z2mDeviceEntry buildDeviceEntry(const QJsonObject &obj) const;
+
+private:
     void collectExposeEntries(const QJsonValue &value, QList<QJsonObject> &out) const;
     void addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry &entry) const;
     bool isPropertySuppressed(const QString &property, const Z2mDeviceEntry &entry) const;
