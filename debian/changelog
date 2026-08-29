@@ -1,3 +1,13 @@
+phi-adapter-z2m (0.0~git202608291355.05e4590-1) trixie; urgency=medium
+
+  * What bridge/info says about the radio - the serial adapter Zigbee2MQTT
+    opened the stick with, the coordinator and its firmware, the port, the
+    channel, the PAN id - is reported as soon as it arrives. It used to wait for
+    the coordinator to turn up as a device, and bridge/info normally arrives
+    first, so a fresh installation reported nothing about its own radio.
+
+ -- Marius Schumacher <google@phisys.com>  Sat, 29 Aug 2026 13:55:03 +0200
+
 phi-adapter-z2m (0.0~git202608241226.e31d06f-1) trixie; urgency=medium
 
   * Enum values are named by the contract rather than by a copy of its table
