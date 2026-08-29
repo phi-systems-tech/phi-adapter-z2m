@@ -1767,6 +1767,15 @@ void Z2mAdapter::handleAvailabilityPayload(const QString &deviceId,
 
 void Z2mAdapter::handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs)
 {
+    // What the bridge says about itself first, and unconditionally. It used to
+    // be reported at the end of this function, behind two early returns waiting
+    // for the coordinator to turn up as a device - so an installation whose
+    // device list had not arrived yet showed nothing at all about its own
+    // radio, and `bridge/info` normally arrives first. Which serial adapter
+    // Zigbee2MQTT is driving is a fact about the bridge; it does not depend on
+    // any device existing.
+    reportBridgeFacts(payload);
+
     if (m_coordinatorId.isEmpty()) {
         m_pendingBridgeInfo = payload;
         return;
@@ -1812,58 +1821,9 @@ void Z2mAdapter::handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs
     const QString serialAdapter = serial.value(QStringLiteral("adapter")).toString().trimmed();
     if (!serialAdapter.isEmpty())
         meta.insert(QStringLiteral("serial_adapter"), serialAdapter);
-    const QString z2mVersion = payload.value(QStringLiteral("version")).toString();
-    const QString z2mCommit = payload.value(QStringLiteral("commit")).toString();
     updated.meta = meta;
     entry.device = updated;
     emit deviceUpdated(entry.device, entry.channels);
-
-    {
-        QJsonObject metaPatch;
-        metaPatch.insert(QStringLiteral("bridge_info"), payload);
-        if (!z2mVersion.isEmpty())
-            metaPatch.insert(QStringLiteral("z2mVersion"), z2mVersion);
-        if (!z2mCommit.isEmpty())
-            metaPatch.insert(QStringLiteral("z2mCommit"), z2mCommit);
-        if (payload.contains(QStringLiteral("permit_join")))
-            metaPatch.insert(QStringLiteral("permitJoin"), payload.value(QStringLiteral("permit_join")));
-        if (payload.contains(QStringLiteral("log_level")))
-            metaPatch.insert(QStringLiteral("logLevel"), payload.value(QStringLiteral("log_level")));
-
-        const QJsonObject network = payload.value(QStringLiteral("network")).toObject();
-        if (network.contains(QStringLiteral("channel")))
-            metaPatch.insert(QStringLiteral("zigbeeChannel"), network.value(QStringLiteral("channel")));
-
-        const QString panId = network.value(QStringLiteral("pan_id")).toVariant().toString().trimmed();
-        if (!panId.isEmpty())
-            metaPatch.insert(QStringLiteral("panId"), panId);
-
-        const QString extPanId = network.value(QStringLiteral("extended_pan_id"))
-                                     .toVariant()
-                                     .toString()
-                                     .trimmed();
-        if (!extPanId.isEmpty())
-            metaPatch.insert(QStringLiteral("extPanId"), extPanId);
-
-        if (!serialPort.isEmpty())
-            metaPatch.insert(QStringLiteral("serialPort"), serialPort);
-        if (!serialAdapter.isEmpty())
-            metaPatch.insert(QStringLiteral("serialAdapter"), serialAdapter);
-
-        const QString coordinatorType = coordinator.value(QStringLiteral("type")).toString().trimmed();
-        if (!coordinatorType.isEmpty())
-            metaPatch.insert(QStringLiteral("coordinatorType"), coordinatorType);
-
-        QString coordinatorFirmware = coordinatorMeta.value(QStringLiteral("revision")).toString().trimmed();
-        if (coordinatorFirmware.isEmpty())
-            coordinatorFirmware = coordinatorMeta.value(QStringLiteral("firmware")).toString().trimmed();
-        if (coordinatorFirmware.isEmpty())
-            coordinatorFirmware = coordinatorMeta.value(QStringLiteral("version")).toString().trimmed();
-        if (!coordinatorFirmware.isEmpty())
-            metaPatch.insert(QStringLiteral("coordinatorFirmware"), coordinatorFirmware);
-
-        emit adapterMetaUpdated(metaPatch);
-    }
 
     if (m_mqttConnected && m_bridgeOnline) {
         for (auto it = entry.bindingsByChannel.begin(); it != entry.bindingsByChannel.end(); ++it) {
@@ -1890,6 +1850,66 @@ void Z2mAdapter::handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs
             emit channelStateUpdated(m_coordinatorId, updateIt.value().channelId, updatePayload, tsMs);
         }
     }
+}
+
+void Z2mAdapter::reportBridgeFacts(const QJsonObject &payload)
+{
+    const QJsonObject coordinator = payload.value(QStringLiteral("coordinator")).toObject();
+    const QJsonObject coordinatorMeta = coordinator.value(QStringLiteral("meta")).toObject();
+    const QJsonObject config = payload.value(QStringLiteral("config")).toObject();
+    const QJsonObject serial = config.value(QStringLiteral("serial")).toObject();
+    const QJsonObject network = payload.value(QStringLiteral("network")).toObject();
+
+    QJsonObject metaPatch;
+    metaPatch.insert(QStringLiteral("bridge_info"), payload);
+
+    const QString z2mVersion = payload.value(QStringLiteral("version")).toString();
+    if (!z2mVersion.isEmpty())
+        metaPatch.insert(QStringLiteral("z2mVersion"), z2mVersion);
+    const QString z2mCommit = payload.value(QStringLiteral("commit")).toString();
+    if (!z2mCommit.isEmpty())
+        metaPatch.insert(QStringLiteral("z2mCommit"), z2mCommit);
+    if (payload.contains(QStringLiteral("permit_join")))
+        metaPatch.insert(QStringLiteral("permitJoin"), payload.value(QStringLiteral("permit_join")));
+    if (payload.contains(QStringLiteral("log_level")))
+        metaPatch.insert(QStringLiteral("logLevel"), payload.value(QStringLiteral("log_level")));
+
+    if (network.contains(QStringLiteral("channel")))
+        metaPatch.insert(QStringLiteral("zigbeeChannel"), network.value(QStringLiteral("channel")));
+
+    const QString panId = network.value(QStringLiteral("pan_id")).toVariant().toString().trimmed();
+    if (!panId.isEmpty())
+        metaPatch.insert(QStringLiteral("panId"), panId);
+
+    const QString extPanId =
+        network.value(QStringLiteral("extended_pan_id")).toVariant().toString().trimmed();
+    if (!extPanId.isEmpty())
+        metaPatch.insert(QStringLiteral("extPanId"), extPanId);
+
+    const QString serialPort = serial.value(QStringLiteral("port")).toString().trimmed();
+    if (!serialPort.isEmpty())
+        metaPatch.insert(QStringLiteral("serialPort"), serialPort);
+
+    // Zigbee2MQTT's own word for the driver it opened the stick with: `ember`,
+    // `zstack`, `deconz`. The host layer names the same thing a radio family,
+    // and the two agreeing is worth being able to see rather than assume.
+    const QString serialAdapter = serial.value(QStringLiteral("adapter")).toString().trimmed();
+    if (!serialAdapter.isEmpty())
+        metaPatch.insert(QStringLiteral("serialAdapter"), serialAdapter);
+
+    const QString coordinatorType = coordinator.value(QStringLiteral("type")).toString().trimmed();
+    if (!coordinatorType.isEmpty())
+        metaPatch.insert(QStringLiteral("coordinatorType"), coordinatorType);
+
+    QString coordinatorFirmware = coordinatorMeta.value(QStringLiteral("revision")).toString().trimmed();
+    if (coordinatorFirmware.isEmpty())
+        coordinatorFirmware = coordinatorMeta.value(QStringLiteral("firmware")).toString().trimmed();
+    if (coordinatorFirmware.isEmpty())
+        coordinatorFirmware = coordinatorMeta.value(QStringLiteral("version")).toString().trimmed();
+    if (!coordinatorFirmware.isEmpty())
+        metaPatch.insert(QStringLiteral("coordinatorFirmware"), coordinatorFirmware);
+
+    emit adapterMetaUpdated(metaPatch);
 }
 
 Z2mAdapter::Z2mDeviceEntry Z2mAdapter::buildDeviceEntry(const QJsonObject &obj) const

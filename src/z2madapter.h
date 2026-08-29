@@ -93,12 +93,24 @@ private:
 
     void handleMqttMessage(const QByteArray &message, const QString &topic);
     void handleBridgeDevicesPayload(const QJsonArray &devices, bool fullSnapshot);
-    void handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs);
     void handleDeviceStatePayload(const QString &deviceId, const QJsonObject &payload, qint64 tsMs);
     void handleAvailabilityPayload(const QString &deviceId, const QString &payload, qint64 tsMs);
 
 protected:
     Z2mDeviceEntry buildDeviceEntry(const QJsonObject &obj) const;
+
+    /// What `bridge/info` says about the bridge itself, reported without
+    /// waiting for anything: which serial adapter Zigbee2MQTT is driving the
+    /// coordinator with, on which port, at which firmware, on which channel.
+    ///
+    /// Protected for the same reason `buildDeviceEntry` is - it belongs to the
+    /// adapter and not to its callers, and a test is the one caller allowed to
+    /// look.
+    void reportBridgeFacts(const QJsonObject &payload);
+
+    /// The whole of what arrives on `bridge/info`: the facts above, and then
+    /// the coordinator as a device once there is one to update.
+    void handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs);
 
 private:
     void collectExposeEntries(const QJsonValue &value, QList<QJsonObject> &out) const;
