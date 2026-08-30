@@ -1,3 +1,12 @@
+phi-adapter-z2m (0.0~git202608301134.9743f48-1) trixie; urgency=medium
+
+  * An instance can reach its broker over TLS, with the fields the SDK
+    decided. Two crashes on the way there: a plain client dialling a TLS
+    listener aborted the process, and stopping a connected client never
+    returned.
+
+ -- Marius Schumacher <google@phisys.com>  Sun, 30 Aug 2026 11:34:32 +0200
+
 phi-adapter-z2m (0.0~git202608300802.1a1d891-1) trixie; urgency=medium
 
   * Starting an instance applies its broker account to the MQTT client.
