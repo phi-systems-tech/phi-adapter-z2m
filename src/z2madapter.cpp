@@ -1,5 +1,7 @@
 #include "z2madapter.h"
 
+#include "phi/adapter/qt/tlsconfig.h"
+
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -824,6 +826,10 @@ void Z2mAdapter::applyConfig()
     m_client->setPort(adapter().port > 0 ? adapter().port : kDefaultPort);
     m_client->setUsername(adapter().user.trimmed());
     m_client->setPassword(adapter().pw);
+    // Read through the SDK rather than out of the meta directly, so that the
+    // string "false" and the boolean false mean the same thing here as they do
+    // in every other adapter - which is the whole reason the fields are shared.
+    m_client->setTls(tlsSettingsFrom(adapter().meta));
 }
 
 void Z2mAdapter::connectToBroker()

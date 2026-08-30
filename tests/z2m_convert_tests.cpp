@@ -104,10 +104,67 @@ void testStartingAppliesTheAccountToTheClient()
     adapter.stop();
 }
 
+/// Starting the adapter has to carry the operator's TLS answer to the client.
+///
+/// The same failure the account had: applyConfig gives up halfway when there is
+/// no client, so an instance that was started and left alone would connect in
+/// the clear while the interface said TLS. That one only surfaced when a broker
+/// started asking; this one would surface as a password on the wire, which
+/// nothing surfaces at all.
+void testStartingCarriesTheTlsAnswerToTheClient()
+{
+    TestableZ2mAdapter adapter;
+
+    Adapter info;
+    info.id = QStringLiteral("main");
+    info.plugin = QStringLiteral("z2m");
+    info.ip = QString();
+    info.port = 8883;
+    info.meta = QJsonObject{{QStringLiteral("tls"), true},
+                            {QStringLiteral("tlsCaFile"), QStringLiteral("/etc/ssl/broker.crt")},
+                            {QStringLiteral("tlsVerifyHostname"), false}};
+    adapter.assignAdapter(info);
+
+    QString error;
+    PHI_CHECK(adapter.start(error));
+    PHI_CHECK(adapter.client() != nullptr);
+    if (adapter.client()) {
+        PHI_CHECK(adapter.client()->tls().enabled);
+        PHI_CHECK(adapter.client()->tls().caFile == "/etc/ssl/broker.crt");
+        PHI_CHECK(!adapter.client()->tls().verifyHostname);
+    }
+    adapter.stop();
+}
+
+void testAnInstanceThatSaidNothingConnectsInTheClearAndVerifies()
+{
+    // Every instance that exists today. Off, because an adapter pointed at a
+    // plain broker has to keep working - and the check on, so that turning TLS
+    // on later is enough.
+    TestableZ2mAdapter adapter;
+
+    Adapter info;
+    info.id = QStringLiteral("main");
+    info.plugin = QStringLiteral("z2m");
+    info.ip = QString();
+    info.port = 1883;
+    adapter.assignAdapter(info);
+
+    QString error;
+    PHI_CHECK(adapter.start(error));
+    if (adapter.client()) {
+        PHI_CHECK(!adapter.client()->tls().enabled);
+        PHI_CHECK(adapter.client()->tls().verifyHostname);
+    }
+    adapter.stop();
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     testStartingAppliesTheAccountToTheClient();
+    testStartingCarriesTheTlsAnswerToTheClient();
+    testAnInstanceThatSaidNothingConnectsInTheClearAndVerifies();
     TestableZ2mAdapter adapter;
 
     // A dimmable lamp, in the shape zigbee2mqtt publishes on bridge/devices:

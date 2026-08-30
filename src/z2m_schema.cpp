@@ -1,5 +1,7 @@
 #include "z2m_schema.h"
 
+#include "phi/adapter/qt/tlsconfig.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -112,6 +114,13 @@ QJsonArray baseSchemaFields(const QString &parentActionId = QString())
                         QJsonValue(),
                         secretFlags,
                         parentActionId));
+
+    // The transport, in the one spelling every adapter uses. Appended from the
+    // SDK rather than written here: a broker reached over TLS is the same
+    // question a Hue bridge or anything else would ask, and an operator should
+    // not have to learn this adapter's opinion about it.
+    for (const QJsonValue &tlsField : phicore::adapter::tlsConfigFields(parentActionId))
+        fields.append(tlsField);
 
     fields.append(field(QStringLiteral("baseTopic"),
                         QStringLiteral("String"),

@@ -56,6 +56,23 @@ public:
     Q_INVOKABLE void setPort(int port) { m_port = port; }
     Q_INVOKABLE void setUsername(const QString &username) { m_username = username; }
     Q_INVOKABLE void setPassword(const QString &password) { m_password = password; }
+    Q_INVOKABLE void setTls(bool enabled, const QString &caFile, bool verifyHostname)
+    {
+        if (m_tlsEnabled == enabled && m_tlsCaFile == caFile
+            && m_tlsVerifyHostname == verifyHostname) {
+            return;
+        }
+        m_tlsEnabled = enabled;
+        m_tlsCaFile = caFile;
+        m_tlsVerifyHostname = verifyHostname;
+        // A mosquitto client cannot be told to stop using TLS - there is no
+        // unset - so one made under the old answer has to go. Without this,
+        // turning TLS off would leave it on and turning it on would be ignored,
+        // both of them silently.
+        if (m_state == MqttClient::State::Disconnected)
+            cleanup();
+    }
+
     Q_INVOKABLE void setKeepAlive(int keepAliveSeconds) { m_keepAliveSeconds = keepAliveSeconds; }
     Q_INVOKABLE void setCleanSession(bool cleanSession) { m_cleanSession = cleanSession; }
 
@@ -81,6 +98,9 @@ public:
             mosquitto_message_callback_set(m_mosq, &MqttWorker::handleMessage);
             mosquitto_log_callback_set(m_mosq, &MqttWorker::handleLog);
         }
+
+        if (m_tlsEnabled && !applyTls())
+            return;
 
         {
             const QByteArray userBytes = m_username.toUtf8();
@@ -173,7 +193,7 @@ private:
             emit worker->connected();
         } else {
             worker->setState(MqttClient::State::Disconnected);
-            worker->stopLoop();
+            worker->leaveTheLoop();
             emit worker->errorOccurred(rc, QStringLiteral("MQTT connect refused"));
         }
     }
@@ -185,7 +205,7 @@ private:
             return;
         Q_UNUSED(rc);
         worker->setState(MqttClient::State::Disconnected);
-        worker->stopLoop();
+        worker->leaveTheLoop();
         emit worker->disconnected();
     }
 
@@ -219,13 +239,93 @@ private:
         m_loopRunning = true;
     }
 
+    /// Ends the network thread, in the order libmosquitto requires.
+    ///
+    /// Disconnect first. `mosquitto_loop_stop(mosq, false)` waits for the
+    /// thread to end, and the thread only ends once the client is disconnected
+    /// - so stopping a connected client waited for something that was never
+    /// going to happen. The documented contract says as much: the unforced stop
+    /// is for a client that has already been told to disconnect.
+    ///
+    /// Measured, because it did not look like a hang from outside: a client
+    /// that had connected happily stayed in its destructor for as long as
+    /// anybody was willing to wait.
     void stopLoop()
     {
         if (!m_mosq || !m_loopRunning)
             return;
+        mosquitto_disconnect(m_mosq);
         mosquitto_loop_stop(m_mosq, false);
         m_loopRunning = false;
     }
+
+    /// Turns TLS on for a client that has not connected yet.
+    ///
+    /// The certificate chain is always verified: there is no option here that
+    /// accepts any certificate, because an endpoint with a self-signed
+    /// certificate already has a correct answer - name it - and the blanket
+    /// version would only ever be the easier way to be insecure.
+    bool applyTls()
+    {
+        if (!m_tlsCaFile.isEmpty()) {
+            const QByteArray caBytes = m_tlsCaFile.toUtf8();
+            const int rc = mosquitto_tls_set(m_mosq, caBytes.constData(), nullptr, nullptr,
+                                             nullptr, nullptr);
+            if (rc != MOSQ_ERR_SUCCESS) {
+                emit errorOccurred(rc, QStringLiteral("Cannot read the CA certificate %1")
+                                           .arg(m_tlsCaFile));
+                return false;
+            }
+        } else {
+            // The authorities the machine already trusts. Set as an option
+            // rather than by naming a directory, so the answer stays the
+            // system's rather than a path we guessed.
+            const int rc = mosquitto_int_option(m_mosq, MOSQ_OPT_TLS_USE_OS_CERTS, 1);
+            if (rc != MOSQ_ERR_SUCCESS) {
+                emit errorOccurred(rc, QStringLiteral("Cannot use the system's trusted"
+                                                      " certificates"));
+                return false;
+            }
+        }
+
+        if (!m_tlsVerifyHostname) {
+            // The chain is still checked; this is only about whether the
+            // certificate has to name the address that was dialled, which it
+            // cannot when somebody connects to a broker by IP.
+            const int rc = mosquitto_tls_insecure_set(m_mosq, true);
+            if (rc != MOSQ_ERR_SUCCESS) {
+                emit errorOccurred(rc, QStringLiteral("Cannot relax the hostname check"));
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Ends the loop from inside one of its own callbacks.
+    ///
+    /// `mosquitto_loop_stop` may not be called from a callback - it waits for
+    /// the very thread it is running on - so this asks for the disconnect that
+    /// makes the loop return on its own, and the stop is queued for afterwards.
+    ///
+    /// This is not tidiness. Without it, `mosquitto_loop_forever` carries on to
+    /// its own reconnect after the connection dies, and when the connection
+    /// died before a CONNACK ever arrived it does that with a socket of -1 -
+    /// where `FD_SET` walks off the end of an `fd_set` and glibc aborts the
+    /// process. A plain client dialling a TLS listener does exactly that, which
+    /// is one of the two mistakes offering a TLS switch invites; the other is
+    /// the same thing the other way round. Measured, with a core file: the
+    /// abort is inside mosquitto_loop_forever, in __fdelt_warn.
+    ///
+    /// Reconnecting is ours to decide anyway - the adapter already schedules
+    /// it - so the loop had no business doing it a second time.
+    void leaveTheLoop()
+    {
+        if (m_mosq)
+            mosquitto_disconnect(m_mosq);
+        QMetaObject::invokeMethod(this, "stopLoopFromOurOwnThread", Qt::QueuedConnection);
+    }
+
+    Q_INVOKABLE void stopLoopFromOurOwnThread() { stopLoop(); }
 
     void cleanup()
     {
@@ -252,6 +352,9 @@ private:
     QString m_hostname;
     QString m_username;
     QString m_password;
+    bool m_tlsEnabled = false;
+    QString m_tlsCaFile;
+    bool m_tlsVerifyHostname = true;
     int m_port = 1883;
     int m_keepAliveSeconds = 60;
     bool m_cleanSession = true;
@@ -312,6 +415,22 @@ void MqttClient::setUsername(const QString &username)
     m_username = username;
     if (m_worker)
         QMetaObject::invokeMethod(m_worker, "setUsername", Qt::QueuedConnection, Q_ARG(QString, username));
+}
+
+void MqttClient::setTls(const phicore::adapter::v1::TlsSettings &settings)
+{
+    m_tls = settings;
+    if (m_worker) {
+        QMetaObject::invokeMethod(m_worker, "setTls", Qt::QueuedConnection,
+                                  Q_ARG(bool, settings.enabled),
+                                  Q_ARG(QString, QString::fromStdString(settings.caFile)),
+                                  Q_ARG(bool, settings.verifyHostname));
+    }
+}
+
+phicore::adapter::v1::TlsSettings MqttClient::tls() const
+{
+    return m_tls;
 }
 
 void MqttClient::setPassword(const QString &password)
@@ -414,6 +533,7 @@ void MqttClient::applyConfig()
     setPassword(m_password);
     setKeepAlive(m_keepAliveSeconds);
     setCleanSession(m_cleanSession);
+    setTls(m_tls);
 }
 
 } // namespace phicore

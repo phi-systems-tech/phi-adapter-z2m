@@ -1,5 +1,7 @@
 #pragma once
 
+#include "phi/adapter/v1/tlsconfig.h"
+
 #include <QByteArray>
 #include <QObject>
 #include <QThread>
@@ -27,6 +29,12 @@ public:
     void setHostname(const QString &hostname);
     void setPort(int port);
     void setUsername(const QString &username);
+    /// How to reach the broker, in the vocabulary the SDK decided.
+    ///
+    /// Taken as the contract's own type rather than three arguments, so that
+    /// there is no place between the operator's answer and the socket where
+    /// this adapter could form a second opinion about what it meant.
+    void setTls(const phicore::adapter::v1::TlsSettings &settings);
     void setPassword(const QString &password);
     void setKeepAlive(int keepAliveSeconds);
     void setCleanSession(bool cleanSession);
@@ -36,6 +44,7 @@ public:
     /// was given one and dropped it - which look identical from outside until
     /// a broker starts asking.
     QString username() const;
+    [[nodiscard]] phicore::adapter::v1::TlsSettings tls() const;
     QString password() const;
 
     State state() const;
@@ -64,6 +73,7 @@ private:
     QString m_hostname;
     QString m_username;
     QString m_password;
+    phicore::adapter::v1::TlsSettings m_tls;
     int m_port = 1883;
     int m_keepAliveSeconds = 60;
     bool m_cleanSession = true;
