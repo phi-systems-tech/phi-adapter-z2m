@@ -31,6 +31,13 @@ public:
     void setKeepAlive(int keepAliveSeconds);
     void setCleanSession(bool cleanSession);
 
+    /// What the client will send on CONNECT. Symmetric with the setters, and
+    /// the only way to tell an adapter that was given no account from one that
+    /// was given one and dropped it - which look identical from outside until
+    /// a broker starts asking.
+    QString username() const;
+    QString password() const;
+
     State state() const;
 
     void connectToHost();

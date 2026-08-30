@@ -415,7 +415,6 @@ Z2mAdapter::~Z2mAdapter()
 bool Z2mAdapter::start(QString &errorString)
 {
     errorString.clear();
-    applyConfig();
 
     if (!m_client) {
         m_client = new ::phicore::MqttClient(this);
@@ -443,6 +442,13 @@ bool Z2mAdapter::start(QString &errorString)
                 return;
         });
     }
+
+    // After the client exists, not before. `stop()` deletes it, so on every
+    // start there is none yet - and applyConfig gives up halfway when there is
+    // nothing to configure, which is how the account never reached the broker
+    // while the broker still accepted anyone. connectToBroker() sets the
+    // address and nothing else, so what is not set here is not set at all.
+    applyConfig();
 
     if (adapter().ip.trimmed().isEmpty()) {
     }
@@ -805,6 +811,10 @@ void Z2mAdapter::applyConfig()
     if (m_baseTopic.endsWith(QLatin1Char('/')))
         m_baseTopic.chop(1);
 
+    // Everything below needs the client. Callers create it first; this is the
+    // guard rather than the contract, because half-applied configuration is
+    // silent - an adapter with no credentials looks exactly like one whose
+    // broker does not ask for any.
     if (!m_client)
         return;
 

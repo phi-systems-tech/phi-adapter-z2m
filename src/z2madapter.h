@@ -112,6 +112,14 @@ protected:
     /// the coordinator as a device once there is one to update.
     void handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs);
 
+    /// The MQTT client, for the one test that has to see what start() left on
+    /// it. Nothing else needs this: everything else can watch the connection
+    /// succeed or fail. But an adapter that was handed an account and never
+    /// applied it looks exactly like one that was handed none, right up until
+    /// the broker stops accepting anonymous clients - which is how this went
+    /// unnoticed.
+    const ::phicore::MqttClient *client() const { return m_client; }
+
 private:
     void collectExposeEntries(const QJsonValue &value, QList<QJsonObject> &out) const;
     void addChannelFromExpose(const QJsonObject &expose, Z2mDeviceEntry &entry) const;

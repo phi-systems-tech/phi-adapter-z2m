@@ -29,6 +29,9 @@ public:
     using Z2mAdapter::handleBridgeInfoPayload;
     using Z2mAdapter::reportBridgeFacts;
     using Z2mAdapter::Z2mDeviceEntry;
+    using Z2mAdapter::client;
+    using Z2mAdapter::start;
+    using Z2mAdapter::stop;
 };
 
 QJsonObject deviceJson(const char *text)
@@ -67,9 +70,44 @@ const char *kBridgeInfo = R"({
 
 } // namespace
 
+/// Starting the adapter has to leave the account on the client.
+///
+/// It did not, and nothing said so. `stop()` deletes the client, so on every
+/// start there is none - and applyConfig() gives up halfway when there is
+/// nothing to configure, so the username and password were only ever applied
+/// by a later config change. An adapter that was handed an account and never
+/// applied it looks exactly like one that was handed none, right up until the
+/// broker stops accepting anonymous clients.
+void testStartingAppliesTheAccountToTheClient()
+{
+    TestableZ2mAdapter adapter;
+
+    Adapter info;
+    info.id = QStringLiteral("main");
+    info.plugin = QStringLiteral("z2m");
+    // No address: connectToBroker() gives up on an empty one, so start() does
+    // everything except open a socket - which is the whole of what is under
+    // test here.
+    info.ip = QString();
+    info.port = 1883;
+    info.user = QStringLiteral("zigbee2mqtt_main");
+    info.pw = QStringLiteral("geheimgeheim");
+    adapter.assignAdapter(info);
+
+    QString error;
+    PHI_CHECK(adapter.start(error));
+    PHI_CHECK(adapter.client() != nullptr);
+    if (adapter.client()) {
+        PHI_CHECK(adapter.client()->username() == QStringLiteral("zigbee2mqtt_main"));
+        PHI_CHECK(adapter.client()->password() == QStringLiteral("geheimgeheim"));
+    }
+    adapter.stop();
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
+    testStartingAppliesTheAccountToTheClient();
     TestableZ2mAdapter adapter;
 
     // A dimmable lamp, in the shape zigbee2mqtt publishes on bridge/devices:

@@ -321,6 +321,16 @@ void MqttClient::setPassword(const QString &password)
         QMetaObject::invokeMethod(m_worker, "setPassword", Qt::QueuedConnection, Q_ARG(QString, password));
 }
 
+QString MqttClient::username() const
+{
+    return m_username;
+}
+
+QString MqttClient::password() const
+{
+    return m_password;
+}
+
 void MqttClient::setKeepAlive(int keepAliveSeconds)
 {
     m_keepAliveSeconds = keepAliveSeconds;
