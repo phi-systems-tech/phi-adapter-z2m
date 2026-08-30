@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202608301754.9de089c-1) trixie; urgency=medium
+
+  * The coordinator's reachability is reported again whenever the bridge
+    comes back.
+
+ -- Marius Schumacher <google@phisys.com>  Sun, 30 Aug 2026 17:54:05 +0200
+
 phi-adapter-z2m (0.0~git202608301140.dc7c945-1) trixie; urgency=medium
 
   * The config schema is held to offering the TLS fields wherever it
