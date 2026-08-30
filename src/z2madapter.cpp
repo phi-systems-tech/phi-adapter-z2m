@@ -788,6 +788,35 @@ void Z2mAdapter::setConnected(bool connected, bool forceNotify)
     emit connectionStateChanged(m_connected);
 }
 
+void Z2mAdapter::reportCoordinatorReachable(qint64 tsMs)
+{
+    // The coordinator is the one device Zigbee2MQTT never speaks about again. It
+    // is announced once in bridge/devices, described in bridge/info, and then
+    // gets neither an availability topic nor a state topic - so unless this
+    // adapter says it is reachable, nothing ever will.
+    //
+    // Which makes saying it once not enough. Core blanks connectivity for every
+    // device behind an adapter whenever the link drops, and a link drop here is
+    // only bridge/state going offline and back: MQTT stays up, no retained
+    // message is replayed, and there is no second bridge/info to trigger the
+    // report. The coordinator then sat at Unknown until something restarted.
+    if (!m_mqttConnected || !m_bridgeOnline || m_coordinatorId.isEmpty())
+        return;
+
+    const QString coordinatorMqttId = m_mqttByExternal.value(m_coordinatorId, m_coordinatorId);
+    const auto deviceIt = m_devices.constFind(coordinatorMqttId);
+    if (deviceIt == m_devices.constEnd())
+        return;
+
+    for (const Z2mChannelBinding &binding : deviceIt.value().bindingsByChannel) {
+        if (!binding.isAvailability)
+            continue;
+        emit channelStateUpdated(m_coordinatorId, binding.channelId,
+                                 static_cast<int>(ConnectivityStatus::Connected), tsMs);
+        break;
+    }
+}
+
 void Z2mAdapter::updateConnectionState(bool forceNotify)
 {
     setConnected(m_mqttConnected && m_bridgeOnline, forceNotify);
@@ -903,6 +932,8 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
                 || payloadText == QStringLiteral("online")) {
                 m_bridgeOnline = true;
                 updateConnectionState();
+                // Whatever core blanked while the bridge was away, say again.
+                reportCoordinatorReachable(QDateTime::currentMSecsSinceEpoch());
                 if (!m_lastSeenRequested) {
                     QJsonObject advanced;
                     advanced.insert(QStringLiteral("last_seen"), QStringLiteral("epoch"));
@@ -1841,15 +1872,7 @@ void Z2mAdapter::handleBridgeInfoPayload(const QJsonObject &payload, qint64 tsMs
     entry.device = updated;
     emit deviceUpdated(entry.device, entry.channels);
 
-    if (m_mqttConnected && m_bridgeOnline) {
-        for (auto it = entry.bindingsByChannel.begin(); it != entry.bindingsByChannel.end(); ++it) {
-            if (!it.value().isAvailability)
-                continue;
-            emit channelStateUpdated(m_coordinatorId, it.value().channelId,
-                                     static_cast<int>(ConnectivityStatus::Connected), tsMs);
-            break;
-        }
-    }
+    reportCoordinatorReachable(tsMs);
 
     const QJsonValue updateValue = payload.value(QStringLiteral("update"));
     if (updateValue.isObject()) {

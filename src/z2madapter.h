@@ -82,6 +82,10 @@ protected:
 private:
 
     void setConnected(bool connected, bool forceNotify = false);
+    /// Say the coordinator is reachable, whenever there is reason to think core
+    /// may have forgotten. Zigbee2MQTT publishes nothing about the coordinator
+    /// after announcing it, so this adapter is its only source.
+    void reportCoordinatorReachable(qint64 tsMs);
     void updateConnectionState(bool forceNotify = false);
     void scheduleConnectionStateRefresh();
     void applyConfig();
