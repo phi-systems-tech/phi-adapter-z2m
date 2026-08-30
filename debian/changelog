@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202608301140.dc7c945-1) trixie; urgency=medium
+
+  * The config schema is held to offering the TLS fields wherever it
+    asks for a password.
+
+ -- Marius Schumacher <google@phisys.com>  Sun, 30 Aug 2026 11:40:43 +0200
+
 phi-adapter-z2m (0.0~git202608301134.9743f48-1) trixie; urgency=medium
 
   * An instance can reach its broker over TLS, with the fields the SDK
