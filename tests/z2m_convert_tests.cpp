@@ -10,6 +10,9 @@
 #include <phi/adapter/testing/check.h>
 
 #include "z2madapter.h"
+#include "z2m_schema.h"
+
+#include "phi/adapter/qt/tlsconfig.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -159,10 +162,51 @@ void testAnInstanceThatSaidNothingConnectsInTheClearAndVerifies()
     adapter.stop();
 }
 
+/// The transport is offered wherever the password is.
+///
+/// That is the invariant rather than "in the instance section": the connection
+/// settings all live in one place - host, port, user, password - and how the
+/// connection is protected belongs with the credential it protects. A form that
+/// asks for a password and not for TLS is a form that can only send it in the
+/// clear.
+///
+/// Checked against the SDK's own list rather than against three names written
+/// out here: a copy of the keys in this test would pass while the adapter and
+/// the rest of phi drifted apart, which is the exact failure the shared fields
+/// exist to prevent.
+void testTheTransportIsOfferedWhereverThePasswordIs()
+{
+    const QJsonObject schema =
+        QJsonDocument::fromJson(QByteArray::fromStdString(
+                                    phicore::z2m::ipc::configSchemaJson()))
+            .object();
+
+    int sectionsAsking = 0;
+    for (const QString &sectionName : {QStringLiteral("factory"), QStringLiteral("instance")}) {
+        QStringList keys;
+        for (const QJsonValue &value :
+             schema.value(sectionName).toObject().value(QStringLiteral("fields")).toArray()) {
+            keys.append(value.toObject().value(QStringLiteral("key")).toString());
+        }
+        if (!keys.contains(QStringLiteral("password")))
+            continue;
+        ++sectionsAsking;
+        for (const QJsonValue &expected : phicore::adapter::tlsConfigFields()) {
+            const QString key = expected.toObject().value(QStringLiteral("key")).toString();
+            PHI_CHECK_MSG(keys.contains(key), "%s fehlt neben dem Passwort in %s",
+                          qPrintable(key), qPrintable(sectionName));
+        }
+    }
+    // And a schema that asked for a password nowhere would pass the loop above
+    // without checking anything at all.
+    PHI_CHECK(sectionsAsking > 0);
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     testStartingAppliesTheAccountToTheClient();
+    testTheTransportIsOfferedWhereverThePasswordIs();
     testStartingCarriesTheTlsAnswerToTheClient();
     testAnInstanceThatSaidNothingConnectsInTheClearAndVerifies();
     TestableZ2mAdapter adapter;
