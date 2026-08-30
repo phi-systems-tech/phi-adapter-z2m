@@ -1,3 +1,11 @@
+phi-adapter-z2m (0.0~git202608300802.1a1d891-1) trixie; urgency=medium
+
+  * Starting an instance applies its broker account to the MQTT client.
+    It was applied only by a later config change, so a started-and-left-
+    alone instance connected anonymously.
+
+ -- Marius Schumacher <google@phisys.com>  Sun, 30 Aug 2026 08:02:47 +0200
+
 phi-adapter-z2m (0.0~git202608291355.05e4590-1) trixie; urgency=medium
 
   * What bridge/info says about the radio - the serial adapter Zigbee2MQTT
