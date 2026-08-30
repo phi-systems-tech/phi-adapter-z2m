@@ -786,6 +786,17 @@ void Z2mAdapter::setConnected(bool connected, bool forceNotify)
     if (m_connected)
         stopReconnectTimer();
     emit connectionStateChanged(m_connected);
+
+    // Immediately after saying the link is back, and on this edge rather than on
+    // any particular MQTT message. Core blanks the connectivity of every device
+    // behind an adapter on exactly the opposite edge, so this is the edge that
+    // has to answer it - which of bridge/state, the broker or the socket caused
+    // the drop is not something this adapter should have to enumerate. Ordering
+    // holds because both travel the same IPC channel: core sees the link come up
+    // first and this report second, which is what makes it count as the
+    // adapter's answer rather than something core overwrites.
+    if (m_connected)
+        reportCoordinatorReachable(QDateTime::currentMSecsSinceEpoch());
 }
 
 void Z2mAdapter::reportCoordinatorReachable(qint64 tsMs)
@@ -932,8 +943,6 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
                 || payloadText == QStringLiteral("online")) {
                 m_bridgeOnline = true;
                 updateConnectionState();
-                // Whatever core blanked while the bridge was away, say again.
-                reportCoordinatorReachable(QDateTime::currentMSecsSinceEpoch());
                 if (!m_lastSeenRequested) {
                     QJsonObject advanced;
                     advanced.insert(QStringLiteral("last_seen"), QStringLiteral("epoch"));
