@@ -48,6 +48,9 @@ constexpr auto kRemoveTimeout = 10s;
 constexpr auto kPostSetRefreshDelay = 1s;
 /// A dial's rotation goes back to zero once it stops turning.
 constexpr auto kDialResetDelay = 700ms;
+/// Core retracts its link-down blanket three seconds after link-up; the
+/// coordinator is reported again after that.
+constexpr auto kLinkSettle = 4s;
 /// The same action string twice within this is one event.
 constexpr std::int64_t kActionDuplicateWindowMs = 120;
 
@@ -125,11 +128,27 @@ protected:
     {
         if (m_lifecycle == Lifecycle::Stopped || !m_client)
             return;
+        const MqttSettings previousSettings = m_settings;
+        const std::string previousBaseTopic = m_baseTopic;
         m_info = request.adapter;
         m_meta = parseObject(request.adapter.metaJson);
         m_filter = ExposeFilter::fromStaticConfig(parseObject(request.staticConfigJson));
         applyConfig();
         m_lifecycle = Lifecycle::Running;
+
+        // Core sends config.changed for every change to the adapter's record,
+        // including the meta patches this adapter itself sends - the bridge's
+        // health report every ten minutes among them. Only a different broker
+        // or a different base topic is a different connection; everything
+        // else is applied to the one that is up. Reconnecting on each echo
+        // dropped and re-announced every device every ten minutes.
+        const bool sameBroker = m_settings.sameConnection(previousSettings)
+            && m_baseTopic == previousBaseTopic;
+        if (sameBroker && brokerConnected()) {
+            std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
+                      << " externalId=" << m_info.externalId << " (same broker, kept)\n";
+            return;
+        }
 
         std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
                   << " externalId=" << m_info.externalId
@@ -651,6 +670,8 @@ private:
             if (const DeviceEntry *entry = m_devices.byMqttId(mqttId))
                 announce(*entry);
         }
+        if (!result.announce.empty())
+            reportCoordinatorReachable(tsMs);
         for (const auto &[ieee, newName] : result.renamed)
             completeRename(ieee, newName, tsMs);
         for (const ConnectivityReport &report : result.connectivity)
@@ -971,9 +992,11 @@ private:
         const DeviceEntry *entry = m_devices.byExternalId(coordinatorId);
         if (entry == nullptr)
             return;
-        if (const ChannelBinding *availability = entry->availabilityBinding())
+        if (const ChannelBinding *availability = entry->availabilityBinding()) {
             reportConnectivity(coordinatorId, availability->channelId,
                                v1::ConnectivityStatus::Connected, tsMs);
+            std::cerr << "z2m-ipc coordinator " << coordinatorId << " reported reachable\n";
+        }
     }
 
     void schedulePostSetRefresh(const std::string &mqttId)
@@ -1063,15 +1086,25 @@ private:
         if (m_linkUp == up && !force)
             return;
         m_linkUp = up;
+        std::cerr << "z2m-ipc link " << (up ? "up" : "down") << '\n';
         v1::Utf8String error;
         if (!sendConnectionStateChanged(up, &error))
             std::cerr << "failed to send connectionStateChanged: " << error << '\n';
-        // Immediately after saying the link is back, and on this edge rather
-        // than on any particular MQTT message. Ordering holds because both
-        // travel the same IPC channel: core sees the link come up first and
-        // this report second.
-        if (up)
+        m_linkSettle.reset();
+        if (!up)
+            return;
+        // Immediately after saying the link is back, on this edge rather than
+        // on any particular MQTT message - and once more after core has had
+        // its say. Core answers a link edge with its own writes to every
+        // device's connectivity (a blanket Disconnected on the way down, its
+        // retraction three seconds after the way up), and those have been
+        // measured landing a few milliseconds *after* this first report, on
+        // top of it. The coordinator is the one device nothing else will
+        // ever report again, so it is said again once the dust has settled.
+        reportCoordinatorReachable(nowMs());
+        m_linkSettle = m_loop->timerAfter(kLinkSettle, [this]() {
             reportCoordinatorReachable(nowMs());
+        });
     }
 
     // --- answering --------------------------------------------------------
@@ -1116,6 +1149,7 @@ private:
         m_reconnect.reset();
         m_healthTimer.reset();
         m_healthReply.reset();
+        m_linkSettle.reset();
         m_dialResets.clear();
         m_pressWindows.clear();
         m_postSetRefresh.clear();
@@ -1140,6 +1174,7 @@ private:
     phi::runtime::Timer m_reconnect;
     phi::runtime::Timer m_healthTimer;
     phi::runtime::Timer m_healthReply;
+    phi::runtime::Timer m_linkSettle;
     BridgeHealth m_health;
     bool m_linkUp = false;
     bool m_lastSeenRequested = false;

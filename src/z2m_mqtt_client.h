@@ -42,6 +42,16 @@ struct MqttSettings {
     int keepAliveSeconds = 60;
     /// Resolve, connect, handshake and CONNACK, all within this.
     std::chrono::milliseconds connectTimeout{10000};
+
+    /// Whether a connection made with `other` would be the same connection.
+    [[nodiscard]] bool sameConnection(const MqttSettings &other) const
+    {
+        return clientId == other.clientId && host == other.host && port == other.port
+            && username == other.username && password == other.password
+            && tls.enabled == other.tls.enabled && tls.caFile == other.tls.caFile
+            && tls.verifyHostname == other.tls.verifyHostname
+            && keepAliveSeconds == other.keepAliveSeconds;
+    }
 };
 
 class MqttClient
