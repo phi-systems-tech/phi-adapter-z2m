@@ -1,3 +1,14 @@
+phi-adapter-z2m (0.0~git202609081750.e8f9fab-1) trixie; urgency=medium
+
+  * The coordinator is reported reachable once more four seconds after
+    the link comes up, after core has retracted its own blanket; the
+    race that left it at Unknown was measured in the channel history.
+  * config.changed with an unchanged broker keeps the connection. Core
+    echoes every meta patch as one, so the adapter reconnected and
+    re-announced every device every ten minutes.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 08 Sep 2026 17:50:17 +0200
+
 phi-adapter-z2m (0.0~git202609081743.3d0a7a6-1) trixie; urgency=medium
 
   * A button click is reported as a single or a double, never both: a
