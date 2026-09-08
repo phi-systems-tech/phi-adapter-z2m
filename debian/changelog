@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202609081904.9567f5d-1) trixie; urgency=medium
+
+  * Rebuilt against phi-adapter-sdk 0.13.1 (ButtonPresses takes the
+    arrival time).
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 08 Sep 2026 19:04:51 +0200
+
 phi-adapter-z2m (0.0~git202609081826.a4e7458-1) trixie; urgency=medium
 
   * The press machine is the SDK's ButtonPresses (phi-adapter-sdk 0.13.0),
