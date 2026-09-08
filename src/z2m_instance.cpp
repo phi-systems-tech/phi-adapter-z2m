@@ -954,10 +954,10 @@ private:
         };
         if (sceneButton) {
             // A scene button is a press and a release in one word.
-            apply(m_presses.onEvent(key, v1::ButtonEventCode::InitialPress, tsMs));
-            apply(m_presses.onEvent(key, v1::ButtonEventCode::ShortPressRelease, tsMs));
+            apply(m_presses.onEvent(key, v1::ButtonEventCode::InitialPress, tsMs, tsMs));
+            apply(m_presses.onEvent(key, v1::ButtonEventCode::ShortPressRelease, tsMs, tsMs));
         } else {
-            apply(m_presses.onEvent(key, code, tsMs));
+            apply(m_presses.onEvent(key, code, tsMs, tsMs));
         }
     }
 
