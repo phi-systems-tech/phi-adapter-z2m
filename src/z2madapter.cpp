@@ -27,6 +27,22 @@ constexpr int kActionDuplicateWindowMs = 120;
 constexpr int kLongPressRepeatWindowMs = 800;
 constexpr int kDialDirectionCacheMs = 1500;
 
+// How the adapter finds out whether anyone is home.
+//
+// `bridge/state` is retained, so the broker replays whatever Zigbee2MQTT last
+// announced to every subscriber that turns up afterwards - including a months
+// old "online" from an instance whose backend has not run since. A will only
+// corrects that for a client that was connected when it died; one that was
+// never connected in this broker's lifetime leaves its last word standing
+// forever. `bridge/request/health_check` is the other half: a request whose
+// answer is published without retain, so receiving one is proof that a live
+// process was there to send it. That is what this adapter believes.
+constexpr int kHealthProbeIntervalMs = 60000;
+constexpr int kHealthProbeReplyMs = 10000;
+// Two, not one. Zigbee2MQTT answers on its event loop, and that loop has real
+// work on it - a single late reply is not the same as a bridge that is gone.
+constexpr int kHealthProbeMissesBeforeOffline = 2;
+
 phicore::adapter::ChannelFlags forceReadOnly(phicore::adapter::ChannelFlags flags)
 {
     if (flags.testFlag(phicore::adapter::ChannelFlag::ChannelFlagWritable))
@@ -418,6 +434,18 @@ bool Z2mAdapter::start(QString &errorString)
 {
     errorString.clear();
 
+    if (!m_healthReplyTimer) {
+        m_healthReplyTimer = new QTimer(this);
+        m_healthReplyTimer->setSingleShot(true);
+        connect(m_healthReplyTimer, &QTimer::timeout, this, &Z2mAdapter::handleHealthProbeTimeout);
+    }
+    if (!m_healthProbeTimer) {
+        m_healthProbeTimer = new QTimer(this);
+        m_healthProbeTimer->setInterval(kHealthProbeIntervalMs);
+        connect(m_healthProbeTimer, &QTimer::timeout, this, &Z2mAdapter::probeBridgeHealth);
+    }
+    m_healthProbeTimer->start();
+
     if (!m_client) {
         m_client = new ::phicore::MqttClient(this);
         m_client->setClientId(QStringLiteral("phi-core-z2m-%1").arg(adapter().id));
@@ -429,9 +457,19 @@ bool Z2mAdapter::start(QString &errorString)
             const QByteArray requestPayload = QByteArrayLiteral("{}");
             m_client->publish(QStringLiteral("%1/bridge/request/info").arg(m_baseTopic),
                               requestPayload);
+            // Right here, before the retained backlog arrives. Whatever
+            // `bridge/state` the broker is about to replay, this is the
+            // question that decides whether it means anything.
+            probeBridgeHealth();
         });
         connect(m_client, &::phicore::MqttClient::disconnected, this, [this]() {
             m_mqttConnected = false;
+            // A dropped socket takes the bridge with it as far as this adapter
+            // knows. Keeping the old answer across a reconnect would carry a
+            // judgement about the far end over a gap in which nothing was
+            // observed - and the next probe costs one round trip on loopback.
+            m_bridgeOnline = false;
+            stopHealthProbe();
             updateConnectionState();
             scheduleReconnect();
         });
@@ -498,6 +536,10 @@ void Z2mAdapter::stop()
         m_client = nullptr;
     }
     m_mqttConnected = false;
+    m_bridgeOnline = false;
+    stopHealthProbe();
+    if (m_healthProbeTimer)
+        m_healthProbeTimer->stop();
     updateConnectionState();
 }
 
@@ -840,6 +882,45 @@ void Z2mAdapter::scheduleConnectionStateRefresh()
     });
 }
 
+void Z2mAdapter::probeBridgeHealth()
+{
+    if (!m_client || m_client->state() != ::phicore::MqttClient::State::Connected)
+        return;
+    // One question at a time. A second one asked while the first is unanswered
+    // would either be answered by the reply to the first, or turn one silence
+    // into two - and both readings are wrong.
+    if (!m_healthProbeTransaction.isEmpty())
+        return;
+
+    m_healthProbeTransaction = QStringLiteral("phi-%1-%2")
+                                   .arg(adapter().id)
+                                   .arg(QDateTime::currentMSecsSinceEpoch());
+    QJsonObject payload;
+    payload.insert(QStringLiteral("transaction"), m_healthProbeTransaction);
+    m_client->publish(QStringLiteral("%1/bridge/request/health_check").arg(m_baseTopic),
+                      QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_healthReplyTimer->start(kHealthProbeReplyMs);
+}
+
+void Z2mAdapter::handleHealthProbeTimeout()
+{
+    m_healthProbeTransaction.clear();
+    if (!m_bridgeOnline)
+        return;
+    if (++m_healthProbeMisses < kHealthProbeMissesBeforeOffline)
+        return;
+    m_bridgeOnline = false;
+    updateConnectionState();
+}
+
+void Z2mAdapter::stopHealthProbe()
+{
+    if (m_healthReplyTimer)
+        m_healthReplyTimer->stop();
+    m_healthProbeTransaction.clear();
+    m_healthProbeMisses = 0;
+}
+
 void Z2mAdapter::applyConfig()
 {
     const int retry = adapter().meta.value(QStringLiteral("retryIntervalMs")).toInt(10000);
@@ -935,14 +1016,20 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
             const QString payloadText = QString::fromUtf8(message).trimmed().toLower();
             if (payloadText == QStringLiteral("{\"state\":\"offline\"}")
                 || payloadText == QStringLiteral("offline")) {
+                // Believed without asking, because nobody publishes their own
+                // absence by mistake: either Zigbee2MQTT said it on the way out
+                // or the broker delivered its will. Both mean gone.
                 m_bridgeOnline = false;
+                m_healthProbeMisses = 0;
                 updateConnectionState();
                 return;
             }
             if (payloadText == QStringLiteral("{\"state\":\"online\"}")
                 || payloadText == QStringLiteral("online")) {
-                m_bridgeOnline = true;
-                updateConnectionState();
+                // Not believed. This topic is retained, so an "online" carries
+                // no date and may have outlived the process that wrote it by
+                // days. Ask instead - and let the answer decide.
+                probeBridgeHealth();
                 if (!m_lastSeenRequested) {
                     QJsonObject advanced;
                     advanced.insert(QStringLiteral("last_seen"), QStringLiteral("epoch"));
@@ -957,6 +1044,25 @@ void Z2mAdapter::handleMqttMessage(const QByteArray &message, const QString &top
                 }
                 return;
             }
+        }
+        if (suffix == QStringLiteral("bridge/response/health_check")) {
+            QJsonParseError err;
+            const QJsonDocument doc = QJsonDocument::fromJson(message, &err);
+            if (err.error != QJsonParseError::NoError || !doc.isObject())
+                return;
+            if (doc.object().value(QStringLiteral("status")).toString() != QStringLiteral("ok"))
+                return;
+
+            // Any answer counts, not only the one to our own question. Responses
+            // are published without retain, so one exists on this topic for
+            // exactly as long as it takes to deliver - seeing it at all means a
+            // live Zigbee2MQTT put it there just now, whoever had asked.
+            stopHealthProbe();
+            if (!m_bridgeOnline) {
+                m_bridgeOnline = true;
+                updateConnectionState();
+            }
+            return;
         }
         if (suffix == QStringLiteral("bridge/health")) {
             QJsonParseError err;

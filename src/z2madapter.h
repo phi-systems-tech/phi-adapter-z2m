@@ -88,6 +88,9 @@ private:
     void reportCoordinatorReachable(qint64 tsMs);
     void updateConnectionState(bool forceNotify = false);
     void scheduleConnectionStateRefresh();
+    void probeBridgeHealth();
+    void handleHealthProbeTimeout();
+    void stopHealthProbe();
     void applyConfig();
     void connectToBroker();
     void disconnectFromBroker();
@@ -158,7 +161,15 @@ private:
     QTimer *m_reconnectTimer = nullptr;
     bool m_connected = false;
     bool m_mqttConnected = false;
-    bool m_bridgeOnline = true;
+    // Unknown is not the same as reachable. This used to start out true, which
+    // meant an instance whose zigbee2mqtt had never once run in this broker's
+    // lifetime reported itself online the moment the MQTT socket came up -
+    // nothing had said the bridge was there, and nothing had to.
+    bool m_bridgeOnline = false;
+    QTimer *m_healthProbeTimer = nullptr;
+    QTimer *m_healthReplyTimer = nullptr;
+    QString m_healthProbeTransaction;
+    int m_healthProbeMisses = 0;
     bool m_lastSeenRequested = false;
     int m_retryIntervalMs = 10000;
     QString m_baseTopic = QStringLiteral("zigbee2mqtt");
