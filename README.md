@@ -47,7 +47,7 @@ tested without one.
 | `z2m_topics` | where a topic under the base points, including friendly names with slashes |
 | `z2m_exposes` | a `bridge/devices` entry into a device with channels and bindings |
 | `z2m_state` | a state payload into channel values, a channel command into a `set` payload |
-| `z2m_actions` | the `action` vocabulary, and what a stream of presses becomes |
+| `z2m_actions` | the `action` vocabulary; the press machine itself is the SDK's `ButtonPresses` |
 | `z2m_bridge` | `bridge/info` facts, the health rule, and the device table the list is diffed against |
 | `z2m_instance` | the AdapterInstance: everything that talks to phi-core |
 | `z2m_probe` | the factory's "Test connection" |
@@ -55,15 +55,11 @@ tested without one.
 
 ### How a button press is reported
 
-Either a single click or a double click, never both. A release is held for
-half a second: if nothing follows it is reported as a single click when the
-window closes, if a second release follows within the window the two are
-reported as one double press, a third as a triple. The 500 ms is the upper
-bound operating systems use for a double click; the 1.3 seconds this used to
-wait made the most common thing a button does the slowest thing the adapter
-did. A hold ends the window at once (the held click is reported, then the
-long press). Devices that count for themselves ("double", "triple" in the
-action) are believed as they are, without a window.
+Through the SDK's `ButtonPresses` (`phi/adapter/sdk/button_presses.h`), the
+same machine every adapter uses: either a single click or a double click,
+never both, decided 500 ms after the release. A hold ends the window at once.
+Devices that count for themselves ("double", "triple" in the action) are
+believed as they are, without a window.
 
 ### What this adapter changes in Zigbee2MQTT
 

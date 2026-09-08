@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "phi/adapter/sdk/button_presses.h"
 #include "phi/adapter/v1/tlsconfig.h"
 #include "phi/runtime/loop.h"
 #include "phi/runtime/str.h"
@@ -935,8 +936,8 @@ private:
             return;
 
         const std::string channelId = binding.channelId;
-        const auto apply = [&](const ButtonPresses::Outcome &outcome) {
-            for (const ButtonPresses::Report &entry : outcome.report)
+        const auto apply = [&](const sdk::ButtonPresses::Outcome &outcome) {
+            for (const sdk::ButtonPresses::Report &entry : outcome.report)
                 report(externalId, channelId, static_cast<std::int64_t>(entry.code), entry.tsMs);
             if (outcome.cancelWindow)
                 m_pressWindows.erase(key);
@@ -945,7 +946,7 @@ private:
                     std::max<std::int64_t>(1, *outcome.windowUntilMs - nowMs()));
                 m_pressWindows[key] = m_loop->timerAfter(delay, [this, key, externalId, channelId]() {
                     m_pressWindows.erase(key);
-                    for (const ButtonPresses::Report &entry : m_presses.onWindowClosed(key))
+                    for (const sdk::ButtonPresses::Report &entry : m_presses.onWindowClosed(key))
                         report(externalId, channelId, static_cast<std::int64_t>(entry.code),
                                entry.tsMs);
                 });
@@ -1181,7 +1182,7 @@ private:
     Json m_pendingBridgeInfo;
 
     DeviceTable m_devices;
-    ButtonPresses m_presses;
+    sdk::ButtonPresses m_presses;
     std::map<std::string, std::int64_t> m_recentActions;
     std::map<std::string, phi::runtime::Timer> m_dialResets;
     std::map<std::string, phi::runtime::Timer> m_pressWindows;
