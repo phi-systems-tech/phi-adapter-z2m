@@ -36,6 +36,26 @@ Provides MQTT bridge integration between Zigbee2MQTT and phi-core.
 - Bridge/device topic synchronization
 - Logging category `phi-core.adapters.z2m`
 
+### How reachability is decided
+
+An instance counts as reachable only while a live Zigbee2MQTT has answered
+`bridge/request/health_check` on `bridge/response/health_check`. Responses are
+published without retain, so an answer can only have come from a process that
+was running at that moment.
+
+`bridge/state` is not enough on its own. It is retained and carries no date, so
+the broker replays whatever an instance last announced to every subscriber that
+turns up afterwards - including an `online` from a run days earlier. A will
+corrects that only for a client that was connected when it died; an instance
+that has not connected in this broker's lifetime leaves its last word standing,
+and mosquitto restores it from persistence across its own restarts. An
+`offline` still counts on sight: nobody publishes their own absence by mistake.
+
+The probe runs on every MQTT connect, on every `online` the broker replays, and
+once a minute after that. Two unanswered probes, not one, bring the link down.
+
+This needs Zigbee2MQTT 2.x, where `health_check` exists as a bridge request.
+
 ### Adapter-Dev Guideline: Enum Mapping
 
 Use this rule for all adapter implementations:
