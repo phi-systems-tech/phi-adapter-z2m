@@ -38,7 +38,10 @@ constexpr int kDialDirectionCacheMs = 1500;
 // answer is published without retain, so receiving one is proof that a live
 // process was there to send it. That is what this adapter believes.
 constexpr int kHealthProbeIntervalMs = 60000;
-constexpr int kHealthProbeReplyMs = 10000;
+// Twenty seconds, from a measurement rather than a guess: a Zigbee2MQTT that
+// had just started and was still interviewing devices took 12.2 s to answer.
+// Ten would have counted that as a miss.
+constexpr int kHealthProbeReplyMs = 20000;
 // Two, not one. Zigbee2MQTT answers on its event loop, and that loop has real
 // work on it - a single late reply is not the same as a bridge that is gone.
 constexpr int kHealthProbeMissesBeforeOffline = 2;
