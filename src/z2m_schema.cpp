@@ -1,257 +1,185 @@
 #include "z2m_schema.h"
 
-#include "phi/adapter/qt/tlsconfig.h"
+#include <string>
 
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include "phi/adapter/v1/enum_names.h"
+#include "phi/adapter/v1/tlsconfig.h"
+#include "phi/runtime/str.h"
+
+#include "z2m_json.h"
 
 namespace phicore::z2m::ipc {
 
+namespace v1 = phicore::adapter::v1;
+namespace str = phi::str;
+
 namespace {
 
-QJsonObject field(const QString &key,
-                  const QString &type,
-                  const QString &label,
-                  const QString &description,
-                  const QJsonValue &defaultValue = QJsonValue(),
-                  const QJsonArray &flags = {},
-                  const QString &parentActionId = QString(),
-                  const QJsonObject &meta = {})
+Json field(const std::string &key,
+           const std::string &type,
+           const std::string &label,
+           const std::string &description,
+           const Json &defaultValue = Json(),
+           const Json &flags = Json::array(),
+           const std::string &parentActionId = {},
+           const Json &meta = Json::object())
 {
-    QJsonObject out;
-    out.insert(QStringLiteral("key"), key);
-    out.insert(QStringLiteral("type"), type);
-    out.insert(QStringLiteral("label"), label);
-    out.insert(QStringLiteral("description"), description);
-    if (!defaultValue.isUndefined() && !defaultValue.isNull())
-        out.insert(QStringLiteral("default"), defaultValue);
-    if (!flags.isEmpty())
-        out.insert(QStringLiteral("flags"), flags);
-    if (!parentActionId.isEmpty())
-        out.insert(QStringLiteral("parentActionId"), parentActionId);
-    if (!meta.isEmpty())
-        out.insert(QStringLiteral("meta"), meta);
+    Json out = Json::object();
+    out["key"] = key;
+    out["type"] = type;
+    out["label"] = label;
+    out["description"] = description;
+    if (!defaultValue.is_null())
+        out["default"] = defaultValue;
+    if (flags.is_array() && !flags.empty())
+        out["flags"] = flags;
+    if (!parentActionId.empty())
+        out["parentActionId"] = parentActionId;
+    if (meta.is_object() && !meta.empty())
+        out["meta"] = meta;
     return out;
 }
 
-QJsonObject responsive(int xs, int sm, int md, int lg, int xl, int xxl)
+Json jsonOf(const v1::ScalarValue &value)
 {
-    QJsonObject out;
-    out.insert(QStringLiteral("xs"), xs);
-    out.insert(QStringLiteral("sm"), sm);
-    out.insert(QStringLiteral("md"), md);
-    out.insert(QStringLiteral("lg"), lg);
-    out.insert(QStringLiteral("xl"), xl);
-    out.insert(QStringLiteral("xxl"), xxl);
+    if (const bool *flag = std::get_if<bool>(&value))
+        return *flag;
+    if (const std::int64_t *number = std::get_if<std::int64_t>(&value))
+        return *number;
+    if (const double *number = std::get_if<double>(&value))
+        return *number;
+    if (const v1::Utf8String *text = std::get_if<v1::Utf8String>(&value))
+        return *text;
+    return Json();
+}
+
+/// A contract field as phi-core reads it. The shape the Qt SDK produced, so
+/// nothing about the form changes with the library underneath it.
+Json fieldJson(const v1::AdapterConfigField &spec)
+{
+    Json out = Json::object();
+    out["key"] = spec.key;
+    out["type"] = v1::enum_names::enumNameFor("AdapterConfigFieldType", static_cast<int>(spec.type));
+    out["label"] = spec.label;
+    out["description"] = spec.description;
+    out["default"] = jsonOf(spec.defaultValue);
+    if (!spec.parentActionId.empty())
+        out["parentActionId"] = spec.parentActionId;
+    if (!spec.visibility.fieldKey.empty()) {
+        Json visibility = Json::object();
+        visibility["fieldKey"] = spec.visibility.fieldKey;
+        visibility["value"] = jsonOf(spec.visibility.value);
+        visibility["op"] = str::toLower(v1::enum_names::enumNameFor(
+            "AdapterConfigVisibilityOp", static_cast<int>(spec.visibility.op)));
+        out["visibility"] = visibility;
+    }
     return out;
 }
 
-QJsonObject section(const QString &title, const QString &description, const QJsonArray &fields)
+Json responsive(int xs, int sm, int md, int lg, int xl, int xxl)
 {
-    QJsonObject layout;
-    layout.insert(QStringLiteral("gridUnits"), 24);
+    return Json{{"xs", xs}, {"sm", sm}, {"md", md}, {"lg", lg}, {"xl", xl}, {"xxl", xxl}};
+}
 
-    QJsonArray gutter;
-    gutter.append(12);
-    gutter.append(8);
-    layout.insert(QStringLiteral("gutter"), gutter);
+Json section(const std::string &title, const std::string &description, const Json &fields)
+{
+    Json defaults = Json::object();
+    defaults["span"] = responsive(24, 24, 12, 12, 12, 12);
+    defaults["labelPosition"] = "top";
+    defaults["labelSpan"] = 8;
+    defaults["controlSpan"] = 16;
+    defaults["actionPosition"] = "inline";
+    defaults["actionSpan"] = 6;
 
-    QJsonObject defaults;
-    defaults.insert(QStringLiteral("span"), responsive(24, 24, 12, 12, 12, 12));
-    defaults.insert(QStringLiteral("labelPosition"), QStringLiteral("top"));
-    defaults.insert(QStringLiteral("labelSpan"), 8);
-    defaults.insert(QStringLiteral("controlSpan"), 16);
-    defaults.insert(QStringLiteral("actionPosition"), QStringLiteral("inline"));
-    defaults.insert(QStringLiteral("actionSpan"), 6);
-    layout.insert(QStringLiteral("defaults"), defaults);
+    Json layout = Json::object();
+    layout["gridUnits"] = 24;
+    layout["gutter"] = Json::array({12, 8});
+    layout["defaults"] = defaults;
 
-    QJsonObject out;
-    out.insert(QStringLiteral("title"), title);
-    out.insert(QStringLiteral("description"), description);
-    out.insert(QStringLiteral("layout"), layout);
-    out.insert(QStringLiteral("fields"), fields);
+    Json out = Json::object();
+    out["title"] = title;
+    out["description"] = description;
+    out["layout"] = layout;
+    out["fields"] = fields;
     return out;
 }
 
-QJsonArray baseSchemaFields(const QString &parentActionId = QString())
+Json baseSchemaFields(const std::string &parentActionId = {})
 {
-    QJsonArray fields;
-
-    QJsonArray requiredFlags;
-    requiredFlags.append(QStringLiteral("Required"));
-
-    fields.append(field(QStringLiteral("host"),
-                        QStringLiteral("Hostname"),
-                        QStringLiteral("MQTT Host"),
-                        QStringLiteral("IP address or hostname of the MQTT broker."),
-                        QJsonValue(QStringLiteral("localhost")),
-                        requiredFlags,
-                        parentActionId));
-
-    fields.append(field(QStringLiteral("port"),
-                        QStringLiteral("Port"),
-                        QStringLiteral("MQTT Port"),
-                        QStringLiteral("TCP port of the MQTT broker."),
-                        QJsonValue(1883),
-                        {},
-                        parentActionId));
-
-    fields.append(field(QStringLiteral("user"),
-                        QStringLiteral("String"),
-                        QStringLiteral("MQTT Username"),
-                        QStringLiteral("Username for MQTT authentication (optional)."),
-                        QJsonValue(),
-                        {},
-                        parentActionId));
-
-    QJsonArray secretFlags;
-    secretFlags.append(QStringLiteral("Secret"));
-    fields.append(field(QStringLiteral("password"),
-                        QStringLiteral("Password"),
-                        QStringLiteral("MQTT Password"),
-                        QStringLiteral("Password for MQTT authentication (optional)."),
-                        QJsonValue(),
-                        secretFlags,
-                        parentActionId));
+    Json fields = Json::array();
+    fields.push_back(field("host", "Hostname", "MQTT Host",
+                           "IP address or hostname of the MQTT broker.", "localhost",
+                           Json::array({"Required"}), parentActionId));
+    fields.push_back(field("port", "Port", "MQTT Port", "TCP port of the MQTT broker.", 1883,
+                           Json::array(), parentActionId));
+    fields.push_back(field("user", "String", "MQTT Username",
+                           "Username for MQTT authentication (optional).", Json(), Json::array(),
+                           parentActionId));
+    fields.push_back(field("password", "Password", "MQTT Password",
+                           "Password for MQTT authentication (optional).", Json(),
+                           Json::array({"Secret"}), parentActionId));
 
     // The transport, in the one spelling every adapter uses. Appended from the
     // SDK rather than written here: a broker reached over TLS is the same
     // question a Hue bridge or anything else would ask, and an operator should
     // not have to learn this adapter's opinion about it.
-    for (const QJsonValue &tlsField : phicore::adapter::tlsConfigFields(parentActionId))
-        fields.append(tlsField);
+    for (const v1::AdapterConfigField &tlsField : v1::tlsConfigFields(parentActionId))
+        fields.push_back(fieldJson(tlsField));
 
-    fields.append(field(QStringLiteral("baseTopic"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Base topic"),
-                        QStringLiteral("Zigbee2MQTT base topic (default: zigbee2mqtt)."),
-                        QJsonValue(QStringLiteral("zigbee2mqtt")),
-                        {},
-                        parentActionId));
-
-    fields.append(field(QStringLiteral("retryIntervalMs"),
-                        QStringLiteral("Integer"),
-                        QStringLiteral("Retry interval"),
-                        QStringLiteral("Reconnect interval while the broker is offline."),
-                        QJsonValue(10000),
-                        {},
-                        parentActionId));
-
+    fields.push_back(field("baseTopic", "String", "Base topic",
+                           "Zigbee2MQTT base topic (default: zigbee2mqtt).", "zigbee2mqtt",
+                           Json::array(), parentActionId));
+    fields.push_back(field("retryIntervalMs", "Integer", "Retry interval",
+                           "Reconnect interval while the broker is offline.", 10000,
+                           Json::array(), parentActionId));
     return fields;
 }
 
-QJsonArray instanceSettingsFields()
+Json instanceSettingsFields()
 {
-    QJsonArray fields;
+    const Json roFlags = Json::array({"ReadOnly", "InstanceOnly"});
+    const Json instanceOnly = Json::array({"InstanceOnly"});
+    const std::string settings = "settings";
 
-    QJsonArray roFlags;
-    roFlags.append(QStringLiteral("ReadOnly"));
-    roFlags.append(QStringLiteral("InstanceOnly"));
-    QJsonArray instanceOnlyFlags;
-    instanceOnlyFlags.append(QStringLiteral("InstanceOnly"));
-
-    fields.append(field(QStringLiteral("z2mVersion"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Z2M Version"),
-                        QStringLiteral("Detected Zigbee2MQTT version."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("z2mCommit"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Z2M Commit"),
-                        QStringLiteral("Detected Zigbee2MQTT commit."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    QJsonObject zigbeeChannelMeta;
-    zigbeeChannelMeta.insert(QStringLiteral("min"), 11);
-    zigbeeChannelMeta.insert(QStringLiteral("max"), 26);
-    zigbeeChannelMeta.insert(QStringLiteral("step"), 1);
-    fields.append(field(QStringLiteral("zigbeeChannel"),
-                        QStringLiteral("Integer"),
-                        QStringLiteral("Zigbee channel"),
-                        QStringLiteral("Zigbee channel (11-26). Requires restart."),
-                        QJsonValue(),
-                        instanceOnlyFlags,
-                        QStringLiteral("settings"),
-                        zigbeeChannelMeta));
-
-    fields.append(field(QStringLiteral("panId"),
-                        QStringLiteral("String"),
-                        QStringLiteral("PAN ID"),
-                        QStringLiteral("Current Zigbee PAN ID."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("extPanId"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Extended PAN ID"),
-                        QStringLiteral("Current Zigbee extended PAN ID."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("serialPort"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Serial port"),
-                        QStringLiteral("Configured coordinator serial port."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("serialAdapter"),
-                        QStringLiteral("String"),
-                        QStringLiteral("USB adapter"),
-                        QStringLiteral("Configured coordinator USB adapter."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("coordinatorType"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Coordinator type"),
-                        QStringLiteral("Detected Zigbee coordinator type."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("coordinatorFirmware"),
-                        QStringLiteral("String"),
-                        QStringLiteral("Coordinator firmware"),
-                        QStringLiteral("Detected Zigbee coordinator firmware revision."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
-    fields.append(field(QStringLiteral("permitJoin"),
-                        QStringLiteral("Boolean"),
-                        QStringLiteral("Permit join"),
-                        QStringLiteral("Current Zigbee permit-join state."),
-                        QJsonValue(),
-                        roFlags,
-                        QStringLiteral("settings")));
-
+    Json fields = Json::array();
+    fields.push_back(field("z2mVersion", "String", "Z2M Version", "Detected Zigbee2MQTT version.",
+                           Json(), roFlags, settings));
+    fields.push_back(field("z2mCommit", "String", "Z2M Commit", "Detected Zigbee2MQTT commit.",
+                           Json(), roFlags, settings));
+    fields.push_back(field("zigbeeChannel", "Integer", "Zigbee channel",
+                           "Zigbee channel (11-26). Requires restart.", Json(), instanceOnly,
+                           settings, Json{{"min", 11}, {"max", 26}, {"step", 1}}));
+    fields.push_back(field("panId", "String", "PAN ID", "Current Zigbee PAN ID.", Json(), roFlags,
+                           settings));
+    fields.push_back(field("extPanId", "String", "Extended PAN ID",
+                           "Current Zigbee extended PAN ID.", Json(), roFlags, settings));
+    fields.push_back(field("serialPort", "String", "Serial port",
+                           "Configured coordinator serial port.", Json(), roFlags, settings));
+    fields.push_back(field("serialAdapter", "String", "USB adapter",
+                           "Configured coordinator USB adapter.", Json(), roFlags, settings));
+    fields.push_back(field("coordinatorType", "String", "Coordinator type",
+                           "Detected Zigbee coordinator type.", Json(), roFlags, settings));
+    fields.push_back(field("coordinatorFirmware", "String", "Coordinator firmware",
+                           "Detected Zigbee coordinator firmware revision.", Json(), roFlags,
+                           settings));
+    fields.push_back(field("permitJoin", "Boolean", "Permit join",
+                           "Current Zigbee permit-join state.", Json(), roFlags, settings));
     return fields;
 }
 
 } // namespace
 
-phicore::adapter::v1::Utf8String displayName()
+v1::Utf8String displayName()
 {
     return "Zigbee";
 }
 
-phicore::adapter::v1::Utf8String description()
+v1::Utf8String description()
 {
     return "Connect to Zigbee via MQTT.";
 }
 
-phicore::adapter::v1::Utf8String iconSvg()
+v1::Utf8String iconSvg()
 {
     return
         "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#26A69A\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Zigbee2MQTT\">"
@@ -262,17 +190,13 @@ phicore::adapter::v1::Utf8String iconSvg()
         "</svg>";
 }
 
-phicore::adapter::v1::AdapterCapabilities capabilities()
+v1::AdapterCapabilities capabilities()
 {
-    namespace v1 = phicore::adapter::v1;
-
     v1::AdapterCapabilities caps;
     caps.required = v1::AdapterRequirement::Host | v1::AdapterRequirement::UsesRetryInterval;
-    caps.optional = v1::AdapterRequirement::Port
-        | v1::AdapterRequirement::Username
+    caps.optional = v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
         | v1::AdapterRequirement::Password;
-    caps.flags = v1::AdapterFlag::SupportsDiscovery
-        | v1::AdapterFlag::SupportsProbe
+    caps.flags = v1::AdapterFlag::SupportsDiscovery | v1::AdapterFlag::SupportsProbe
         | v1::AdapterFlag::SupportsRename;
 
     v1::AdapterActionDescriptor probe;
@@ -321,22 +245,14 @@ phicore::adapter::v1::AdapterCapabilities capabilities()
     return caps;
 }
 
-phicore::adapter::v1::JsonText configSchemaJson()
+v1::JsonText configSchemaJson()
 {
-    const QJsonArray baseFields = baseSchemaFields();
-    const QJsonArray instanceFields = instanceSettingsFields();
-
-    QJsonObject schema;
-    schema.insert(QStringLiteral("factory"),
-                  section(QStringLiteral("Zigbee2MQTT"),
-                          QStringLiteral("Configure the MQTT broker used by Zigbee2MQTT."),
-                          baseFields));
-    schema.insert(QStringLiteral("instance"),
-                  section(QStringLiteral("Zigbee2MQTT"),
-                          QStringLiteral("Configure the MQTT broker used by Zigbee2MQTT."),
-                          instanceFields));
-
-    return QJsonDocument(schema).toJson(QJsonDocument::Compact).toStdString();
+    Json schema = Json::object();
+    schema["factory"] = section("Zigbee2MQTT", "Configure the MQTT broker used by Zigbee2MQTT.",
+                                baseSchemaFields());
+    schema["instance"] = section("Zigbee2MQTT", "Configure the MQTT broker used by Zigbee2MQTT.",
+                                 instanceSettingsFields());
+    return dump(schema);
 }
 
 } // namespace phicore::z2m::ipc

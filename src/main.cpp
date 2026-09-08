@@ -1,219 +1,113 @@
-#include <algorithm>
-#include <atomic>
+// Process entry point for the Zigbee2MQTT sidecar: the adapter factory and
+// the SDK's own main loop. The instance lives in z2m_instance; the broker in
+// z2m_mqtt_client; the conversion in z2m_exposes and z2m_state.
+
 #include <chrono>
-#include <csignal>
 #include <cstdlib>
-#include <functional>
 #include <iostream>
-#include <thread>
+#include <memory>
+#include <string>
 
-#include <QCoreApplication>
-#include <QEventLoop>
-#include <QDateTime>
-#include <QJsonObject>
-#include <QJsonDocument>
-#include <QTcpSocket>
-#include <QTimer>
-
-#include "z2m_schema.h"
-#include "z2m_sidecar.h"
-#include "phi/adapter/sdk/qt/sidecar_driver_qt.h"
+#include "phi/adapter/sdk/loop_execution_backend.h"
 #include "phi/adapter/sdk/sidecar.h"
-#include "phi/adapter/sdk/qt/instance_execution_backend_qt.h"
+
+#include "z2m_instance.h"
+#include "z2m_json.h"
+#include "z2m_probe.h"
+#include "z2m_schema.h"
+
+namespace v1 = phicore::adapter::v1;
+namespace sdk = phicore::adapter::sdk;
+
+using namespace phicore::z2m::ipc;
+using namespace std::chrono_literals;
 
 namespace {
 
-namespace phi = phicore::adapter::sdk;
-namespace v1 = phicore::adapter::v1;
+constexpr auto kProbeTimeout = 2000ms;
 
-std::atomic_bool g_running{true};
-using ActionResponse = v1::ActionResponse;
-using CmdStatus = v1::CmdStatus;
-
-std::int64_t nowMs()
+class Z2mFactory final : public sdk::AdapterFactory
 {
-    return QDateTime::currentMSecsSinceEpoch();
-}
-
-// Sliced connect wait: a shutdown must not have to sit out the full connect
-// budget (F-33). `cancelled` is the factory's stopRequested().
-bool waitForConnectedCancellable(QTcpSocket &socket,
-                                 int timeoutMs,
-                                 const std::function<bool()> &cancelled)
-{
-    constexpr int kSliceMs = 100;
-    int waitedMs = 0;
-    while (waitedMs < timeoutMs) {
-        if (cancelled && cancelled())
-            return false;
-        const int slice = std::min(kSliceMs, timeoutMs - waitedMs);
-        if (socket.waitForConnected(slice))
-            return true;
-        if (socket.state() == QAbstractSocket::UnconnectedState)
-            return false;
-        waitedMs += slice;
-    }
-    return false;
-}
-
-ActionResponse factoryProbe(std::uint64_t cmdId,
-                            const QJsonObject &params,
-                            const std::function<bool()> &cancelled)
-{
-    const QJsonObject factoryAdapter = params.value("factoryAdapter").toObject();
-
-    const auto pickText = [&params, &factoryAdapter](const char *primaryKey, const char *fallbackKey = nullptr) {
-        const QString direct = params.value(QLatin1String(primaryKey)).toString().trimmed();
-        if (!direct.isEmpty())
-            return direct;
-        if (fallbackKey != nullptr) {
-            const QString directFallback = params.value(QLatin1String(fallbackKey)).toString().trimmed();
-            if (!directFallback.isEmpty())
-                return directFallback;
-        }
-        const QString nested = factoryAdapter.value(QLatin1String(primaryKey)).toString().trimmed();
-        if (!nested.isEmpty())
-            return nested;
-        if (fallbackKey != nullptr)
-            return factoryAdapter.value(QLatin1String(fallbackKey)).toString().trimmed();
-        return QString{};
-    };
-
-    const auto pickPort = [&params, &factoryAdapter]() {
-        const int direct = params.value(QStringLiteral("port")).toInt(0);
-        if (direct > 0)
-            return direct;
-        const int nested = factoryAdapter.value(QStringLiteral("port")).toInt(0);
-        if (nested > 0)
-            return nested;
-        return 1883;
-    };
-
-    const QString host = pickText("host", "ip");
-    const int port = pickPort();
-
-    ActionResponse response;
-    response.id = cmdId;
-    response.tsMs = nowMs();
-    response.resultType = v1::ActionResultType::Boolean;
-    response.resultValue = false;
-
-    if (host.isEmpty()) {
-        response.status = CmdStatus::InvalidArgument;
-        response.error = "Host must not be empty.";
-        return response;
+protected:
+    // The probe waits for a TCP connect for up to two seconds; on the host
+    // poll thread that stalled IPC for every instance of this sidecar.
+    std::unique_ptr<sdk::InstanceExecutionBackend> createFactoryExecutionBackend() override
+    {
+        return sdk::createLoopExecutionBackend("z2m-factory");
     }
 
-    QTcpSocket socket;
-    socket.connectToHost(host, static_cast<quint16>(port));
-    if (!waitForConnectedCancellable(socket, 2000, cancelled)) {
-        const QString error = socket.errorString().trimmed().isEmpty()
-            ? QStringLiteral("Connection failed")
-            : socket.errorString().trimmed();
-        socket.abort();
-        response.status = CmdStatus::Failure;
-        response.error = error.toStdString();
-        return response;
-    }
-
-    socket.disconnectFromHost();
-    response.status = CmdStatus::Success;
-    response.resultValue = true;
-    return response;
-}
-
-void handleSignal(int)
-{
-    g_running.store(false);
-}
-
-class Z2mFactory final : public phi::AdapterFactory
-{
-public:
-    std::unique_ptr<phi::InstanceExecutionBackend> createInstanceExecutionBackend(
-        const v1::ExternalId &externalId) override
+    std::unique_ptr<sdk::InstanceExecutionBackend> createInstanceExecutionBackend(
+        const sdk::ExternalId &externalId) override
     {
         (void)externalId;
-        return phi::qt::createInstanceExecutionBackend();
+        return sdk::createLoopExecutionBackend("z2m-instance");
     }
 
-    // factoryProbe() blocks in QTcpSocket::waitForConnected for up to 2s; on the
-    // host poll thread that stalled IPC for every instance of this sidecar.
-    std::unique_ptr<phi::InstanceExecutionBackend> createFactoryExecutionBackend() override
-    {
-        return phi::qt::createFactoryExecutionBackend();
-    }
+    v1::Utf8String pluginType() const override { return kPluginType; }
+    v1::Utf8String displayName() const override { return phicore::z2m::ipc::displayName(); }
+    v1::Utf8String description() const override { return phicore::z2m::ipc::description(); }
+    v1::Utf8String apiVersion() const override { return "1.0.0"; }
+    v1::Utf8String iconSvg() const override { return phicore::z2m::ipc::iconSvg(); }
+    int timeoutMs() const override { return 15000; }
+    int maxInstances() const override { return 0; }
 
-    std::unique_ptr<phi::AdapterInstance> createInstance(
-        const v1::ExternalId &externalId) override
-    {
-        (void)externalId;
-        return std::make_unique<phicore::z2m::ipc::Z2mSidecar>();
-    }
-
-    void onFactoryActionInvoke(const phi::AdapterActionInvokeRequest &request) override
-    {
-        v1::ActionResponse response;
-
-        if (request.actionId != "probe") {
-            response.id = request.cmdId;
-            response.status = v1::CmdStatus::NotImplemented;
-            response.error = "Factory action not implemented";
-            response.tsMs = nowMs();
-        } else {
-            response = factoryProbe(
-                request.cmdId,
-                QJsonDocument::fromJson(QByteArray::fromStdString(request.paramsJson)).object(),
-                [this]() { return stopRequested(); });
-        }
-
-        v1::Utf8String err;
-        sendResult(response, &err);
-    }
-
-    v1::Utf8String pluginType() const override
-    {
-        return phicore::z2m::ipc::kPluginType;
-    }
-
-    v1::Utf8String displayName() const override
-    {
-        return phicore::z2m::ipc::displayName();
-    }
-
-    v1::Utf8String description() const override
-    {
-        return phicore::z2m::ipc::description();
-    }
-
-    v1::Utf8String iconSvg() const override
-    {
-        return phicore::z2m::ipc::iconSvg();
-    }
-
-    v1::Utf8String apiVersion() const override
-    {
-        return "1.0.0";
-    }
-
-    int timeoutMs() const override
-    {
-        return 15000;
-    }
-
-    int maxInstances() const override
-    {
-        return 0;
-    }
-
-    phicore::adapter::v1::AdapterCapabilities capabilities() const override
+    v1::AdapterCapabilities capabilities() const override
     {
         return phicore::z2m::ipc::capabilities();
     }
 
-    phicore::adapter::v1::JsonText configSchemaJson() const override
+    v1::JsonText configSchemaJson() const override
     {
         return phicore::z2m::ipc::configSchemaJson();
+    }
+
+    std::unique_ptr<sdk::AdapterInstance> createInstance(const sdk::ExternalId &externalId) override
+    {
+        (void)externalId;
+        return makeInstance();
+    }
+
+    void onFactoryActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
+    {
+        v1::ActionResponse response;
+        response.id = request.cmdId;
+        response.tsMs = 0;
+        response.resultType = v1::ActionResultType::Boolean;
+        response.resultValue = false;
+
+        if (request.actionId != "probe") {
+            response.status = v1::CmdStatus::NotImplemented;
+            response.error = "Factory action not implemented";
+            response.resultType = v1::ActionResultType::None;
+            send(response);
+            return;
+        }
+
+        const ProbeTarget target = probeTargetFromParams(parseObject(request.paramsJson));
+        if (target.host.empty()) {
+            response.status = v1::CmdStatus::InvalidArgument;
+            response.error = "Host must not be empty.";
+            send(response);
+            return;
+        }
+
+        std::string error;
+        if (probeEndpoint(target, kProbeTimeout, [this]() { return stopRequested(); }, &error)) {
+            response.status = v1::CmdStatus::Success;
+            response.resultValue = true;
+        } else {
+            response.status = v1::CmdStatus::Failure;
+            response.error = error.empty() ? "Connection failed" : error;
+        }
+        send(response);
+    }
+
+private:
+    void send(const v1::ActionResponse &response)
+    {
+        v1::Utf8String error;
+        if (!sendResult(response, &error))
+            std::cerr << "failed to send factory.action.invoke result: " << error << '\n';
     }
 };
 
@@ -221,45 +115,15 @@ public:
 
 int main(int argc, char **argv)
 {
-    QCoreApplication app(argc, argv);
-
-    std::signal(SIGINT, handleSignal);
-    std::signal(SIGTERM, handleSignal);
-
     const char *envSocketPath = std::getenv("PHI_ADAPTER_SOCKET_PATH");
     const v1::Utf8String socketPath = (argc > 1)
         ? argv[1]
         : (envSocketPath ? envSocketPath : v1::Utf8String("/tmp/phi-adapter-z2m-ipc.sock"));
 
-    std::cerr << "starting phi_adapter_z2m_ipc for pluginType=" << phicore::z2m::ipc::kPluginType
+    std::cerr << "starting phi_adapter_z2m_ipc for pluginType=" << kPluginType
               << " socket=" << socketPath << '\n';
 
     Z2mFactory factory;
-    phi::SidecarHost host(socketPath, factory);
-
-    // The driver watches the host's poll descriptor from the Qt event loop:
-    // no polling interval, no idle wakeups, and the Qt event loop is no longer
-    // starved by a blocking poll (adapter timers now run on time).
-    phi::qt::SidecarDriver driver(host);
-
-    v1::Utf8String error;
-    if (!driver.start(&error)) {
-        std::cerr << "failed to start sidecar host: " << error << '\n';
-        return 1;
-    }
-
-    // Signal handlers only flip a flag; a slow timer turns it into a clean
-    // Qt shutdown.
-    QTimer shutdownTimer;
-    QObject::connect(&shutdownTimer, &QTimer::timeout, [&]() {
-        if (!g_running.load(std::memory_order_relaxed))
-            app.quit();
-    });
-    shutdownTimer.start(250);
-
-    const int execResult = app.exec();
-    driver.stop();
-
-    std::cerr << "stopping phi_adapter_z2m_ipc" << '\n';
-    return execResult;
+    sdk::SidecarHost host(socketPath, factory);
+    return sdk::runSidecarMain(host);
 }

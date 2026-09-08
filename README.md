@@ -32,9 +32,47 @@ Provides MQTT bridge integration between Zigbee2MQTT and phi-core.
 
 ### Features
 
-- MQTT connection management
+- MQTT connection management, on the adapter's own loop
 - Bridge/device topic synchronization
 - Logging category `phi-core.adapters.z2m`
+
+### Layout
+
+One concern per translation unit; everything above the broker is pure and
+tested without one.
+
+| File | What it decides |
+|---|---|
+| `z2m_mqtt_client` | libmosquitto driven by the phi-runtime loop: one thread, a connect deadline, a reason for every disconnect |
+| `z2m_topics` | where a topic under the base points, including friendly names with slashes |
+| `z2m_exposes` | a `bridge/devices` entry into a device with channels and bindings |
+| `z2m_state` | a state payload into channel values, a channel command into a `set` payload |
+| `z2m_actions` | the `action` vocabulary, and what a stream of presses becomes |
+| `z2m_bridge` | `bridge/info` facts, the health rule, and the device table the list is diffed against |
+| `z2m_instance` | the AdapterInstance: everything that talks to phi-core |
+| `z2m_probe` | the factory's "Test connection" |
+| `z2m_schema` | name, icon, capabilities, configuration form |
+
+### How a button press is reported
+
+A single click is reported the moment it happens. A second release within
+half a second is reported *in addition* as a double press, a third as a
+triple. Nothing is held back to find out whether more is coming: the old
+version waited 1.3 seconds before reporting a single click, which made the
+most common thing a button does the slowest thing the adapter did. An
+automation on "single click" therefore also sees the first click of a double
+click. Devices that count for themselves ("double", "triple" in the action)
+are believed as they are.
+
+### What this adapter changes in Zigbee2MQTT
+
+Once per connection, after the first `bridge/state online`, the adapter asks
+Zigbee2MQTT to set `advanced.last_seen` to `epoch` (through
+`bridge/request/options`), and logs that it did. Zigbee2MQTT writes the option
+to its `configuration.yaml`. With it every state message carries when the
+device last spoke, which is what device reachability is judged from; without
+it a retained state replayed by the broker looks like a device that spoke just
+now.
 
 ### How reachability is decided
 
@@ -80,10 +118,12 @@ Reason:
 ### Build Requirements
 
 - `cmake`
-- Qt6 modules: `Core`, `Network`
 - `libmosquitto-dev`
-- `phi-adapter-sdk` (local checkout or installed package)
-- `phi-adapter-sdk-qt` (local checkout or installed package)
+- `nlohmann-json3-dev`
+- `phi-adapter-sdk` >= 0.12.0 (local checkout or installed package), which
+  brings `phi-runtime`
+
+No Qt.
 
 ### Configuration
 
@@ -93,14 +133,19 @@ Reason:
 ### Build
 
 ```bash
-cmake -S . -B ../build/phi-adapter-z2m/release-ninja -G Ninja
-cmake --build ../build/phi-adapter-z2m/release-ninja --parallel
+cmake -S . -B build -G Ninja
+cmake --build build --parallel
+ctest --test-dir build
 ```
+
+The MQTT client test runs against a broker of its own (a few hundred lines
+that speak enough MQTT 3.1.1 to accept, refuse, echo and go quiet), so no
+broker has to be installed to run the suite.
 
 ### Installation
 
-- Build output: `../build/phi-adapter-z2m/release-ninja/plugins/adapters/phi_adapter_z2m_ipc`
-- Deploy to: `/opt/phi/plugins/adapters/`
+- Build output: `build/plugins/adapters/phi_adapter_z2m_ipc`
+- Installed by the Debian package to `/usr/lib/<multiarch>/phi/plugins/adapters/`
 
 ### Troubleshooting
 

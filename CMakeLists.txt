@@ -8,30 +8,22 @@ project(phi-adapter-z2m
 
 include(GNUInstallDirs)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
+# No Qt. The loop, the timers and the strings come from phi-runtime through the
+# SDK; MQTT from libmosquitto driven by that loop; JSON from nlohmann, which is
+# what phi-core uses.
+find_package(nlohmann_json 3.11 REQUIRED)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network)
-
-option(PHI_ADAPTER_Z2M_BUILD_IPC
-    "Build IPC sidecar executable for z2m adapter"
-    ON
-)
+option(PHI_ADAPTER_Z2M_BUILD_IPC "Build IPC sidecar executable for z2m adapter" ON)
 
 set(PHI_ADAPTER_SDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../phi-adapter-sdk" CACHE PATH
     "Path to local phi-adapter-sdk checkout. If not found, find_package(phi-adapter-sdk) is used."
 )
-set(PHI_ADAPTER_SDK_QT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../phi-adapter-sdk-qt" CACHE PATH
-    "Path to local phi-adapter-sdk-qt checkout. If not found, find_package(phi-adapter-sdk-qt) is used."
-)
 option(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK
-    "Use local ../phi-adapter-sdk checkout when available"
-    ON
-)
+    "Use local ../phi-adapter-sdk checkout when available" ON)
 
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
@@ -44,7 +36,7 @@ else()
     find_path(MOSQUITTO_INCLUDE_DIR mosquitto.h)
     find_library(MOSQUITTO_LIBRARY mosquitto)
     if(NOT MOSQUITTO_INCLUDE_DIR OR NOT MOSQUITTO_LIBRARY)
-        message(FATAL_ERROR "libmosquitto not found. Install libmosquitto-dev (Debian) or mosquitto (Homebrew).")
+        message(FATAL_ERROR "libmosquitto not found. Install libmosquitto-dev.")
     endif()
     add_library(mosquitto::mosquitto UNKNOWN IMPORTED)
     set_target_properties(mosquitto::mosquitto PROPERTIES
@@ -57,7 +49,8 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk)
         if(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK AND EXISTS "${PHI_ADAPTER_SDK_SOURCE_DIR}/CMakeLists.txt")
             message(STATUS "Using local phi-adapter-sdk from: ${PHI_ADAPTER_SDK_SOURCE_DIR}")
-            add_subdirectory("${PHI_ADAPTER_SDK_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk" EXCLUDE_FROM_ALL)
+            set(PHI_ADAPTER_SDK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            add_subdirectory("${PHI_ADAPTER_SDK_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk")
         else()
             message(STATUS "Using installed phi-adapter-sdk via find_package")
             find_package(phi-adapter-sdk CONFIG REQUIRED)
@@ -67,55 +60,58 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk)
         message(FATAL_ERROR "phi-adapter-sdk target phi::adapter-sdk not found")
     endif()
-    if(NOT TARGET phi::adapter-sdk-qt)
-        if(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK AND EXISTS "${PHI_ADAPTER_SDK_QT_SOURCE_DIR}/CMakeLists.txt")
-            message(STATUS "Using local phi-adapter-sdk-qt from: ${PHI_ADAPTER_SDK_QT_SOURCE_DIR}")
-            add_subdirectory("${PHI_ADAPTER_SDK_QT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/phi-adapter-sdk-qt" EXCLUDE_FROM_ALL)
-        else()
-            message(STATUS "Using installed phi-adapter-sdk-qt via find_package")
-            find_package(phi-adapter-sdk-qt CONFIG REQUIRED)
-        endif()
-    endif()
-    if(NOT TARGET phi::adapter-sdk-qt)
-        message(FATAL_ERROR "phi::adapter-sdk target phi::adapter-sdk-qt not found")
-    endif()
 
-    add_executable(phi_adapter_z2m_ipc
-        src/main.cpp
-        src/adapterinterface.h
-        src/z2m_runtime_convert.cpp
-        src/z2m_runtime_convert.h
+    # One concern per translation unit; everything but the client and the
+    # instance is pure enough to test without a broker.
+    add_library(phi_adapter_z2m_core STATIC
+        src/z2m_actions.cpp
+        src/z2m_bridge.cpp
+        src/z2m_exposes.cpp
+        src/z2m_instance.cpp
+        src/z2m_json.cpp
+        src/z2m_mqtt_client.cpp
+        src/z2m_probe.cpp
         src/z2m_schema.cpp
-        src/z2m_schema.h
-        src/z2m_sidecar.cpp
-        src/z2m_sidecar.h
-        src/z2madapter.cpp
-        src/z2madapter.h
-        src/mqtt/mqttclient.cpp
-        src/mqtt/mqttclient.h
+        src/z2m_state.cpp
+        src/z2m_topics.cpp
+    )
+    target_compile_features(phi_adapter_z2m_core PUBLIC cxx_std_20)
+    set_target_properties(phi_adapter_z2m_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(phi_adapter_z2m_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(phi_adapter_z2m_core
+        PUBLIC
+            phi::adapter-sdk
+            nlohmann_json::nlohmann_json
+            mosquitto::mosquitto
     )
 
-    target_compile_features(phi_adapter_z2m_ipc PRIVATE cxx_std_20)
+    add_executable(phi_adapter_z2m_ipc src/main.cpp)
+    target_link_libraries(phi_adapter_z2m_ipc PRIVATE phi_adapter_z2m_core)
 
-    target_include_directories(phi_adapter_z2m_ipc
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/mqtt
-    )
+    enable_testing()
 
-        target_link_libraries(phi_adapter_z2m_ipc
-            PRIVATE
-                Qt6::Core
-                Qt6::Network
-                phi::adapter-sdk
-                phi::adapter-sdk-qt
-                phi::adapter-contract-qt
-                mosquitto::mosquitto
-        )
+    # A device description and the channels it turns into; the schema.
+    add_executable(z2m_convert_tests tests/z2m_convert_tests.cpp)
+    target_link_libraries(z2m_convert_tests PRIVATE phi_adapter_z2m_core)
+    add_test(NAME z2m_convert_tests COMMAND z2m_convert_tests)
+
+    # Topics, the action vocabulary, the press machine, the device table and
+    # the health rule.
+    add_executable(z2m_behaviour_tests tests/z2m_behaviour_tests.cpp)
+    target_link_libraries(z2m_behaviour_tests PRIVATE phi_adapter_z2m_core)
+    add_test(NAME z2m_behaviour_tests COMMAND z2m_behaviour_tests)
+
+    # The MQTT client against a broker that behaves and one that does not.
+    find_package(Threads REQUIRED)
+    add_executable(z2m_mqtt_client_tests tests/z2m_mqtt_client_tests.cpp)
+    target_link_libraries(z2m_mqtt_client_tests PRIVATE phi_adapter_z2m_core Threads::Threads)
+    add_test(NAME z2m_mqtt_client_tests COMMAND z2m_mqtt_client_tests)
+
+    set_tests_properties(z2m_convert_tests z2m_behaviour_tests z2m_mqtt_client_tests
+        PROPERTIES TIMEOUT 120)
 
     set_target_properties(phi_adapter_z2m_ipc PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/adapters"
-        INSTALL_RPATH "$ORIGIN"
     )
 
     add_custom_command(TARGET phi_adapter_z2m_ipc POST_BUILD
@@ -124,47 +120,8 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
             "$<TARGET_FILE_DIR:phi_adapter_z2m_ipc>/z2m-config.json"
     )
 
-    # The conversion this adapter is mostly made of, tested without a broker.
-    # `ctest` from the build directory runs it; nothing about it is installed.
-    enable_testing()
-    add_executable(z2m_convert_tests
-        tests/z2m_convert_tests.cpp
-        # The interface is a QObject declared in a header, so its moc has to be
-        # generated for this target too.
-        src/adapterinterface.h
-        src/z2m_runtime_convert.cpp
-        src/z2m_schema.cpp
-        src/z2madapter.cpp
-        src/mqtt/mqttclient.cpp
-    )
-    target_compile_features(z2m_convert_tests PRIVATE cxx_std_20)
-    target_include_directories(z2m_convert_tests
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/mqtt
-    )
-    target_link_libraries(z2m_convert_tests
-        PRIVATE
-            Qt6::Core
-            Qt6::Network
-            phi::adapter-sdk
-            phi::adapter-sdk-qt
-            phi::adapter-contract-qt
-            mosquitto::mosquitto
-    )
-    add_test(NAME z2m_convert_tests COMMAND z2m_convert_tests)
-
-    set(PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_z2m_ipc)
-    if(TARGET phi_adapter_sdk)
-        list(APPEND PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_sdk)
-    endif()
-    if(TARGET phi_adapter_sdk_qt)
-        list(APPEND PHI_ADAPTER_Z2M_INSTALL_TARGETS phi_adapter_sdk_qt)
-    endif()
-
-    install(TARGETS ${PHI_ADAPTER_Z2M_INSTALL_TARGETS}
+    install(TARGETS phi_adapter_z2m_ipc
         RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/phi/plugins/adapters
     )
 endif()
 
