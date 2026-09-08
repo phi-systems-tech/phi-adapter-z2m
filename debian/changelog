@@ -1,3 +1,12 @@
+phi-adapter-z2m (0.0~git202609080726.15d6041-1) trixie; urgency=medium
+
+  * An instance reports itself online only once a live zigbee2mqtt has
+    answered a health_check. The retained bridge/state it used to believe
+    outlives the process that wrote it, and the starting assumption was
+    that the bridge was there.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 08 Sep 2026 07:26:32 +0200
+
 phi-adapter-z2m (0.0~git202608301801.a4f3e2e-1) trixie; urgency=medium
 
   * The coordinator is reported on the same edge core blanks it on.
