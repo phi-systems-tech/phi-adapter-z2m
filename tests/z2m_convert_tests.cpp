@@ -414,7 +414,7 @@ void testTheTransportIsOfferedWhereverThePasswordIs()
             continue;
         ++sectionsAsking;
         for (const char *key : {v1::kTlsFieldKey, v1::kTlsCaFileFieldKey, v1::kTlsVerifyHostnameFieldKey})
-            PHI_CHECK_MSG(keys.count(key), "%s fehlt neben dem Passwort in %s", key, name);
+            PHI_CHECK_MSG(keys.count(key), "%s is missing next to the password in %s", key, name);
     }
     PHI_CHECK(sectionsAsking > 0);
 
