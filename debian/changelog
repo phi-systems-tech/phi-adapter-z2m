@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202609080752.c6297ca-1) trixie; urgency=medium
+
+  * A health probe is given twenty seconds to be answered. A busy
+    Zigbee2MQTT was measured at 12.2 seconds.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 08 Sep 2026 07:52:55 +0200
+
 phi-adapter-z2m (0.0~git202609080726.15d6041-1) trixie; urgency=medium
 
   * An instance reports itself online only once a live zigbee2mqtt has
