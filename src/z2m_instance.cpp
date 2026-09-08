@@ -903,26 +903,40 @@ private:
         if (binding.actionButtonId > 0 && buttonId != binding.actionButtonId)
             return;
 
-        std::vector<v1::ButtonEventCode> codes;
-        if (action.rfind("scene_", 0) == 0) {
-            // A scene button is a press and a release in one word.
-            for (const v1::ButtonEventCode code : m_presses.onEvent(key, v1::ButtonEventCode::InitialPress, tsMs))
-                codes.push_back(code);
-            for (const v1::ButtonEventCode code : m_presses.onEvent(key, v1::ButtonEventCode::ShortPressRelease, tsMs))
-                codes.push_back(code);
-        } else {
-            v1::ButtonEventCode code = buttonEventFor(action);
-            if (code == v1::ButtonEventCode::None) {
-                const Json actionType = jsonValue(payload, "action_type");
-                if (actionType.is_string())
-                    code = buttonEventFor(actionType.get<std::string>());
-            }
-            if (code == v1::ButtonEventCode::None)
-                return;
-            codes = m_presses.onEvent(key, code, tsMs);
+        v1::ButtonEventCode code = buttonEventFor(action);
+        const bool sceneButton = action.rfind("scene_", 0) == 0;
+        if (!sceneButton && code == v1::ButtonEventCode::None) {
+            const Json actionType = jsonValue(payload, "action_type");
+            if (actionType.is_string())
+                code = buttonEventFor(actionType.get<std::string>());
         }
-        for (const v1::ButtonEventCode code : codes)
-            report(externalId, binding.channelId, static_cast<std::int64_t>(code), tsMs);
+        if (!sceneButton && code == v1::ButtonEventCode::None)
+            return;
+
+        const std::string channelId = binding.channelId;
+        const auto apply = [&](const ButtonPresses::Outcome &outcome) {
+            for (const ButtonPresses::Report &entry : outcome.report)
+                report(externalId, channelId, static_cast<std::int64_t>(entry.code), entry.tsMs);
+            if (outcome.cancelWindow)
+                m_pressWindows.erase(key);
+            if (outcome.windowUntilMs) {
+                const auto delay = std::chrono::milliseconds(
+                    std::max<std::int64_t>(1, *outcome.windowUntilMs - nowMs()));
+                m_pressWindows[key] = m_loop->timerAfter(delay, [this, key, externalId, channelId]() {
+                    m_pressWindows.erase(key);
+                    for (const ButtonPresses::Report &entry : m_presses.onWindowClosed(key))
+                        report(externalId, channelId, static_cast<std::int64_t>(entry.code),
+                               entry.tsMs);
+                });
+            }
+        };
+        if (sceneButton) {
+            // A scene button is a press and a release in one word.
+            apply(m_presses.onEvent(key, v1::ButtonEventCode::InitialPress, tsMs));
+            apply(m_presses.onEvent(key, v1::ButtonEventCode::ShortPressRelease, tsMs));
+        } else {
+            apply(m_presses.onEvent(key, code, tsMs));
+        }
     }
 
     void handleAvailability(const std::string &mqttId, const std::string &payload,
@@ -988,6 +1002,7 @@ private:
         m_presses.clear();
         m_recentActions.clear();
         m_dialResets.clear();
+        m_pressWindows.clear();
         m_postSetRefresh.clear();
         m_pendingBridgeInfo = Json();
         m_lastSeenRequested = false;
@@ -1102,6 +1117,7 @@ private:
         m_healthTimer.reset();
         m_healthReply.reset();
         m_dialResets.clear();
+        m_pressWindows.clear();
         m_postSetRefresh.clear();
         m_client.reset();
         m_loop = nullptr;
@@ -1133,6 +1149,7 @@ private:
     ButtonPresses m_presses;
     std::map<std::string, std::int64_t> m_recentActions;
     std::map<std::string, phi::runtime::Timer> m_dialResets;
+    std::map<std::string, phi::runtime::Timer> m_pressWindows;
     std::map<std::string, phi::runtime::Timer> m_postSetRefresh;
     std::map<std::string, PendingRename> m_renames;
     std::map<std::string, PendingRemove> m_removes;

@@ -55,14 +55,15 @@ tested without one.
 
 ### How a button press is reported
 
-A single click is reported the moment it happens. A second release within
-half a second is reported *in addition* as a double press, a third as a
-triple. Nothing is held back to find out whether more is coming: the old
-version waited 1.3 seconds before reporting a single click, which made the
-most common thing a button does the slowest thing the adapter did. An
-automation on "single click" therefore also sees the first click of a double
-click. Devices that count for themselves ("double", "triple" in the action)
-are believed as they are.
+Either a single click or a double click, never both. A release is held for
+half a second: if nothing follows it is reported as a single click when the
+window closes, if a second release follows within the window the two are
+reported as one double press, a third as a triple. The 500 ms is the upper
+bound operating systems use for a double click; the 1.3 seconds this used to
+wait made the most common thing a button does the slowest thing the adapter
+did. A hold ends the window at once (the held click is reported, then the
+long press). Devices that count for themselves ("double", "triple" in the
+action) are believed as they are, without a window.
 
 ### What this adapter changes in Zigbee2MQTT
 

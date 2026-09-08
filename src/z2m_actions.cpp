@@ -160,58 +160,87 @@ v1::ButtonEventCode buttonEventFor(std::string_view text)
     return v1::ButtonEventCode::None;
 }
 
-std::vector<v1::ButtonEventCode> ButtonPresses::onEvent(const std::string &key,
-                                                        v1::ButtonEventCode code,
-                                                        std::int64_t tsMs)
+std::vector<ButtonPresses::Report> ButtonPresses::flush(Memory &memory)
 {
     using Code = v1::ButtonEventCode;
-    std::vector<Code> out;
+    std::vector<Report> out;
+    if (memory.releases <= 0)
+        return out;
+    Code code = Code::ShortPressRelease;
+    if (memory.releases == 2)
+        code = Code::DoublePress;
+    else if (memory.releases == 3)
+        code = Code::TriplePress;
+    else if (memory.releases == 4)
+        code = Code::QuadruplePress;
+    else if (memory.releases >= 5)
+        code = Code::QuintuplePress;
+    out.push_back({code, memory.lastReleaseTs});
+    memory.releases = 0;
+    memory.lastReleaseTs = 0;
+    return out;
+}
+
+ButtonPresses::Outcome ButtonPresses::onEvent(const std::string &key, v1::ButtonEventCode code,
+                                              std::int64_t tsMs)
+{
+    using Code = v1::ButtonEventCode;
+    Outcome out;
     if (code == Code::None)
         return out;
     Memory &memory = m_keys[key];
 
     switch (code) {
-    case Code::ShortPressRelease: {
-        out.push_back(Code::ShortPressRelease);
-        const bool quick = memory.lastReleaseTs > 0
-            && (tsMs - memory.lastReleaseTs) <= kMultiPressWindowMs;
-        memory.releases = quick ? memory.releases + 1 : 1;
+    case Code::ShortPressRelease:
+        // Held: the next half second decides what it was.
+        ++memory.releases;
         memory.lastReleaseTs = tsMs;
-        if (memory.releases == 2)
-            out.push_back(Code::DoublePress);
-        else if (memory.releases == 3)
-            out.push_back(Code::TriplePress);
-        else if (memory.releases == 4)
-            out.push_back(Code::QuadruplePress);
-        else if (memory.releases >= 5)
-            out.push_back(Code::QuintuplePress);
+        out.windowUntilMs = tsMs + kMultiPressWindowMs;
         break;
-    }
+    case Code::InitialPress:
+        // The second press of a double click is a press like any other;
+        // whatever is held stays held.
+        out.report.push_back({code, tsMs});
+        break;
     case Code::LongPress: {
+        // A hold is a different gesture: a click held before it is a click.
+        out.report = flush(memory);
+        out.cancelWindow = true;
         const bool repeating = (memory.lastCode == static_cast<int>(Code::LongPress)
                                 || memory.lastCode == static_cast<int>(Code::Repeat))
             && memory.lastTs > 0 && (tsMs - memory.lastTs) <= kLongPressRepeatWindowMs;
         code = repeating ? Code::Repeat : Code::LongPress;
-        out.push_back(code);
-        memory.releases = 0;
+        out.report.push_back({code, tsMs});
         break;
     }
-    case Code::InitialPress:
-        out.push_back(code);
-        break;
     default:
-        // A device that says "double" itself has done the counting.
-        out.push_back(code);
-        memory.releases = 0;
+        // A device that says "double" itself has done the counting; so has
+        // one that says "long release".
+        out.report = flush(memory);
+        out.cancelWindow = true;
+        out.report.push_back({code, tsMs});
         break;
     }
 
     if (code == Code::LongPressRelease) {
         memory.lastCode = 0;
         memory.lastTs = 0;
-    } else {
+    } else if (code != Code::ShortPressRelease) {
         memory.lastCode = static_cast<int>(code);
         memory.lastTs = tsMs;
+    }
+    return out;
+}
+
+std::vector<ButtonPresses::Report> ButtonPresses::onWindowClosed(const std::string &key)
+{
+    const auto it = m_keys.find(key);
+    if (it == m_keys.end())
+        return {};
+    std::vector<Report> out = flush(it->second);
+    if (!out.empty()) {
+        it->second.lastCode = static_cast<int>(out.back().code);
+        it->second.lastTs = out.back().tsMs;
     }
     return out;
 }
