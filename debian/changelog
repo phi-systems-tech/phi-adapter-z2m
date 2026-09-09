@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202609091830.916ea2d-1) trixie; urgency=medium
+
+  * Tests: one stray German string in z2m_convert_tests is English now.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 09 Sep 2026 18:30:35 +0200
+
 phi-adapter-z2m (0.0~git202609081904.9567f5d-1) trixie; urgency=medium
 
   * Rebuilt against phi-adapter-sdk 0.13.1 (ButtonPresses takes the
