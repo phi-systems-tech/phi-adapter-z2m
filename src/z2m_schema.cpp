@@ -162,7 +162,6 @@ v1::AdapterCapabilities capabilities()
     settings.formLayout.width = v1::AdapterConfigSize::Wide;
     settings.formLayout.columns = 2;
     settings.formLayout.labelWidth = v1::AdapterConfigSize::Wide;
-    settings.kind = v1::AdapterActionKind::OpenDialog;
     settings.loadFormOnOpen = true;
     caps.instanceActions.push_back(settings);
 
