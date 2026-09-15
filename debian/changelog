@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202609151321.d858492-1) trixie; urgency=medium
+
+  * Schema through the SDK: broker in two columns, status two to a row.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 15 Sep 2026 13:21:04 +0200
+
 phi-adapter-z2m (0.0~git202609091830.916ea2d-1) trixie; urgency=medium
 
   * Tests: one stray German string in z2m_convert_tests is English now.
