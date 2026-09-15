@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202609151747.8e14423-1) trixie; urgency=medium
+
+  * Built against SDK 0.17.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 15 Sep 2026 17:47:22 +0200
+
 phi-adapter-z2m (0.0~git202609151615.b52e0cb-1) trixie; urgency=medium
 
   * No action kind (SDK 0.16)
