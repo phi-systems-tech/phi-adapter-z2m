@@ -56,9 +56,9 @@ protected:
         return phicore::z2m::ipc::capabilities();
     }
 
-    v1::JsonText configSchemaJson() const override
+    std::optional<v1::AdapterConfigSchema> configSchema() const override
     {
-        return phicore::z2m::ipc::configSchemaJson();
+        return phicore::z2m::ipc::configSchema();
     }
 
     std::unique_ptr<sdk::AdapterInstance> createInstance(const sdk::ExternalId &externalId) override

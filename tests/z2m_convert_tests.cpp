@@ -398,16 +398,14 @@ void testTheConfigurationReachesTheClient()
 /// for credentials asks the TLS questions in the SDK's spelling.
 void testTheTransportIsOfferedWhereverThePasswordIs()
 {
-    const Json schema = parseObject(configSchemaJson());
-    PHI_CHECK(schema.contains("factory") && schema.contains("instance"));
+    const v1::AdapterConfigSchema schema = configSchema();
     int sectionsAsking = 0;
-    for (const char *name : {"factory", "instance"}) {
-        const Json fields = jsonValue(schema[name], "fields");
+    for (const auto &[name, section] : {std::pair{"factory", &schema.factory}, std::pair{"instance", &schema.instance}}) {
         std::set<std::string> keys;
         bool asksForPassword = false;
-        for (const Json &field : fields) {
-            keys.insert(jsonString(field, "key"));
-            if (jsonString(field, "type") == "Password")
+        for (const v1::AdapterConfigField &field : section->fields) {
+            keys.insert(field.key);
+            if (field.type == v1::AdapterConfigFieldType::Password)
                 asksForPassword = true;
         }
         if (!asksForPassword)
@@ -418,15 +416,14 @@ void testTheTransportIsOfferedWhereverThePasswordIs()
     }
     PHI_CHECK(sectionsAsking > 0);
 
-    // The CA field only shows once TLS is on, in the shape core parses.
-    for (const Json &field : jsonValue(schema["factory"], "fields")) {
-        if (jsonString(field, "key") != v1::kTlsCaFileFieldKey)
+    // The CA field only shows once TLS is on.
+    for (const v1::AdapterConfigField &field : schema.factory.fields) {
+        if (field.key != v1::kTlsCaFileFieldKey)
             continue;
-        const Json visibility = jsonValue(field, "visibility");
-        PHI_CHECK(visibility["fieldKey"] == v1::kTlsFieldKey);
-        PHI_CHECK(visibility["value"] == true);
-        PHI_CHECK(visibility["op"] == "equals");
-        PHI_CHECK(jsonString(field, "type") == "String");
+        PHI_CHECK(field.visibility.fieldKey == v1::kTlsFieldKey);
+        PHI_CHECK(std::get_if<bool>(&field.visibility.value) && std::get<bool>(field.visibility.value));
+        PHI_CHECK(field.visibility.op == v1::AdapterConfigVisibilityOp::Equals);
+        PHI_CHECK(field.type == v1::AdapterConfigFieldType::String);
     }
     const v1::AdapterCapabilities caps = capabilities();
     PHI_CHECK(caps.factoryActions.size() == 1 && caps.factoryActions[0].id == "probe");

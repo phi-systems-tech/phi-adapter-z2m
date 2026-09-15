@@ -1,170 +1,109 @@
 #include "z2m_schema.h"
 
 #include <string>
+#include <utility>
 
-#include "phi/adapter/v1/enum_names.h"
 #include "phi/adapter/v1/tlsconfig.h"
-#include "phi/runtime/str.h"
-
-#include "z2m_json.h"
 
 namespace phicore::z2m::ipc {
 
 namespace v1 = phicore::adapter::v1;
-namespace str = phi::str;
 
 namespace {
 
-Json field(const std::string &key,
-           const std::string &type,
-           const std::string &label,
-           const std::string &description,
-           const Json &defaultValue = Json(),
-           const Json &flags = Json::array(),
-           const std::string &parentActionId = {},
-           const Json &meta = Json::object())
+v1::AdapterConfigField field(const char *key, v1::AdapterConfigFieldType type, const char *label,
+                             const char *description, v1::ScalarValue defaultValue = {},
+                             v1::AdapterConfigFieldFlags flags = v1::AdapterConfigFieldFlag::None,
+                             const char *parentActionId = "")
 {
-    Json out = Json::object();
-    out["key"] = key;
-    out["type"] = type;
-    out["label"] = label;
-    out["description"] = description;
-    if (!defaultValue.is_null())
-        out["default"] = defaultValue;
-    if (flags.is_array() && !flags.empty())
-        out["flags"] = flags;
-    if (!parentActionId.empty())
-        out["parentActionId"] = parentActionId;
-    if (meta.is_object() && !meta.empty())
-        out["meta"] = meta;
+    v1::AdapterConfigField out;
+    out.key = key;
+    out.type = type;
+    out.label = label;
+    out.description = description;
+    out.defaultValue = std::move(defaultValue);
+    out.flags = flags;
+    out.parentActionId = parentActionId;
     return out;
 }
 
-Json jsonOf(const v1::ScalarValue &value)
+/// The broker, in two columns: address beside port, account beside password,
+/// the TLS switch on a row of its own with its details after it.
+v1::AdapterConfigSection brokerSection()
 {
-    if (const bool *flag = std::get_if<bool>(&value))
-        return *flag;
-    if (const std::int64_t *number = std::get_if<std::int64_t>(&value))
-        return *number;
-    if (const double *number = std::get_if<double>(&value))
-        return *number;
-    if (const v1::Utf8String *text = std::get_if<v1::Utf8String>(&value))
-        return *text;
-    return Json();
-}
+    using Type = v1::AdapterConfigFieldType;
+    v1::AdapterConfigSection out;
+    out.title = "Zigbee2MQTT";
+    out.description = "Configure the MQTT broker used by Zigbee2MQTT.";
+    out.layout.columns = 2;
 
-/// A contract field as phi-core reads it. The shape the Qt SDK produced, so
-/// nothing about the form changes with the library underneath it.
-Json fieldJson(const v1::AdapterConfigField &spec)
-{
-    Json out = Json::object();
-    out["key"] = spec.key;
-    out["type"] = v1::enum_names::enumNameFor("AdapterConfigFieldType", static_cast<int>(spec.type));
-    out["label"] = spec.label;
-    out["description"] = spec.description;
-    out["default"] = jsonOf(spec.defaultValue);
-    if (!spec.parentActionId.empty())
-        out["parentActionId"] = spec.parentActionId;
-    if (!spec.visibility.fieldKey.empty()) {
-        Json visibility = Json::object();
-        visibility["fieldKey"] = spec.visibility.fieldKey;
-        visibility["value"] = jsonOf(spec.visibility.value);
-        visibility["op"] = str::toLower(v1::enum_names::enumNameFor(
-            "AdapterConfigVisibilityOp", static_cast<int>(spec.visibility.op)));
-        out["visibility"] = visibility;
-    }
-    return out;
-}
-
-Json responsive(int xs, int sm, int md, int lg, int xl, int xxl)
-{
-    return Json{{"xs", xs}, {"sm", sm}, {"md", md}, {"lg", lg}, {"xl", xl}, {"xxl", xxl}};
-}
-
-Json section(const std::string &title, const std::string &description, const Json &fields)
-{
-    Json defaults = Json::object();
-    defaults["span"] = responsive(24, 24, 12, 12, 12, 12);
-    defaults["labelPosition"] = "top";
-    defaults["labelSpan"] = 8;
-    defaults["controlSpan"] = 16;
-    defaults["actionPosition"] = "inline";
-    defaults["actionSpan"] = 6;
-
-    Json layout = Json::object();
-    layout["gridUnits"] = 24;
-    layout["gutter"] = Json::array({12, 8});
-    layout["defaults"] = defaults;
-
-    Json out = Json::object();
-    out["title"] = title;
-    out["description"] = description;
-    out["layout"] = layout;
-    out["fields"] = fields;
-    return out;
-}
-
-Json baseSchemaFields(const std::string &parentActionId = {})
-{
-    Json fields = Json::array();
-    fields.push_back(field("host", "Hostname", "MQTT Host",
-                           "IP address or hostname of the MQTT broker.", "localhost",
-                           Json::array({"Required"}), parentActionId));
-    fields.push_back(field("port", "Port", "MQTT Port", "TCP port of the MQTT broker.", 1883,
-                           Json::array(), parentActionId));
-    fields.push_back(field("user", "String", "MQTT Username",
-                           "Username for MQTT authentication (optional).", Json(), Json::array(),
-                           parentActionId));
-    fields.push_back(field("password", "Password", "MQTT Password",
-                           "Password for MQTT authentication (optional).", Json(),
-                           Json::array({"Secret"}), parentActionId));
+    v1::AdapterConfigField host = field("host", Type::Hostname, "MQTT Host", "IP address or hostname of the MQTT broker.",
+                                        v1::Utf8String("localhost"), v1::AdapterConfigFieldFlag::Required);
+    v1::AdapterConfigField port =
+        field("port", Type::Port, "MQTT Port", "TCP port of the MQTT broker.", std::int64_t{1883});
+    port.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    v1::AdapterConfigField user =
+        field("user", Type::String, "MQTT Username", "Username for MQTT authentication (optional).");
+    v1::AdapterConfigField password = field("password", Type::Password, "MQTT Password",
+                                            "Password for MQTT authentication (optional).", {},
+                                            v1::AdapterConfigFieldFlag::Secret);
+    out.fields = {host, port, user, password};
 
     // The transport, in the one spelling every adapter uses. Appended from the
     // SDK rather than written here: a broker reached over TLS is the same
     // question a Hue bridge or anything else would ask, and an operator should
     // not have to learn this adapter's opinion about it.
-    for (const v1::AdapterConfigField &tlsField : v1::tlsConfigFields(parentActionId))
-        fields.push_back(fieldJson(tlsField));
+    v1::AdapterConfigFieldList tls = v1::tlsConfigFields();
+    if (!tls.empty())
+        tls.front().layout.newRow = true;
+    out.fields.insert(out.fields.end(), tls.begin(), tls.end());
 
-    fields.push_back(field("baseTopic", "String", "Base topic",
-                           "Zigbee2MQTT base topic (default: zigbee2mqtt).", "zigbee2mqtt",
-                           Json::array(), parentActionId));
-    fields.push_back(field("retryIntervalMs", "Integer", "Retry interval",
-                           "Reconnect interval while the broker is offline.", 10000,
-                           Json::array(), parentActionId));
-    return fields;
+    v1::AdapterConfigField baseTopic = field("baseTopic", Type::String, "Base topic",
+                                             "Zigbee2MQTT base topic (default: zigbee2mqtt).",
+                                             v1::Utf8String("zigbee2mqtt"));
+    baseTopic.layout.newRow = true;
+    v1::AdapterConfigField retry = field("retryIntervalMs", Type::Integer, "Retry interval",
+                                         "Reconnect interval while the broker is offline.", std::int64_t{10000});
+    retry.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    out.fields.push_back(baseTopic);
+    out.fields.push_back(retry);
+    return out;
 }
 
-Json instanceSettingsFields()
+/// What Zigbee2MQTT reports about itself, two to a row; the channel is the
+/// one thing that can be changed.
+v1::AdapterConfigSection instanceSection()
 {
-    const Json roFlags = Json::array({"ReadOnly", "InstanceOnly"});
-    const Json instanceOnly = Json::array({"InstanceOnly"});
-    const std::string settings = "settings";
+    using Type = v1::AdapterConfigFieldType;
+    using Flag = v1::AdapterConfigFieldFlag;
+    const v1::AdapterConfigFieldFlags readOnly = Flag::ReadOnly | Flag::InstanceOnly;
+    const char *settings = "settings";
 
-    Json fields = Json::array();
-    fields.push_back(field("z2mVersion", "String", "Z2M Version", "Detected Zigbee2MQTT version.",
-                           Json(), roFlags, settings));
-    fields.push_back(field("z2mCommit", "String", "Z2M Commit", "Detected Zigbee2MQTT commit.",
-                           Json(), roFlags, settings));
-    fields.push_back(field("zigbeeChannel", "Integer", "Zigbee channel",
-                           "Zigbee channel (11-26). Requires restart.", Json(), instanceOnly,
-                           settings, Json{{"min", 11}, {"max", 26}, {"step", 1}}));
-    fields.push_back(field("panId", "String", "PAN ID", "Current Zigbee PAN ID.", Json(), roFlags,
-                           settings));
-    fields.push_back(field("extPanId", "String", "Extended PAN ID",
-                           "Current Zigbee extended PAN ID.", Json(), roFlags, settings));
-    fields.push_back(field("serialPort", "String", "Serial port",
-                           "Configured coordinator serial port.", Json(), roFlags, settings));
-    fields.push_back(field("serialAdapter", "String", "USB adapter",
-                           "Configured coordinator USB adapter.", Json(), roFlags, settings));
-    fields.push_back(field("coordinatorType", "String", "Coordinator type",
-                           "Detected Zigbee coordinator type.", Json(), roFlags, settings));
-    fields.push_back(field("coordinatorFirmware", "String", "Coordinator firmware",
-                           "Detected Zigbee coordinator firmware revision.", Json(), roFlags,
-                           settings));
-    fields.push_back(field("permitJoin", "Boolean", "Permit join",
-                           "Current Zigbee permit-join state.", Json(), roFlags, settings));
-    return fields;
+    v1::AdapterConfigSection out;
+    out.title = "Zigbee2MQTT";
+    out.description = "Configure the MQTT broker used by Zigbee2MQTT.";
+
+    v1::AdapterConfigField channel = field("zigbeeChannel", Type::Integer, "Zigbee channel",
+                                           "Zigbee channel (11-26). Requires restart.", {}, Flag::InstanceOnly, settings);
+    channel.metaJson = R"({"min":11,"max":26,"step":1})";
+    channel.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+
+    out.fields = {
+        field("z2mVersion", Type::String, "Z2M Version", "Detected Zigbee2MQTT version.", {}, readOnly, settings),
+        field("z2mCommit", Type::String, "Z2M Commit", "Detected Zigbee2MQTT commit.", {}, readOnly, settings),
+        channel,
+        field("panId", Type::String, "PAN ID", "Current Zigbee PAN ID.", {}, readOnly, settings),
+        field("extPanId", Type::String, "Extended PAN ID", "Current Zigbee extended PAN ID.", {}, readOnly, settings),
+        field("serialPort", Type::String, "Serial port", "Configured coordinator serial port.", {}, readOnly, settings),
+        field("serialAdapter", Type::String, "USB adapter", "Configured coordinator USB adapter.", {}, readOnly,
+              settings),
+        field("coordinatorType", Type::String, "Coordinator type", "Detected Zigbee coordinator type.", {}, readOnly,
+              settings),
+        field("coordinatorFirmware", Type::String, "Coordinator firmware",
+              "Detected Zigbee coordinator firmware revision.", {}, readOnly, settings),
+        field("permitJoin", Type::Boolean, "Permit join", "Current Zigbee permit-join state.", {}, readOnly, settings),
+    };
+    return out;
 }
 
 } // namespace
@@ -211,6 +150,9 @@ v1::AdapterCapabilities capabilities()
     settings.label = "Settings";
     settings.description = "Edit Zigbee2MQTT instance settings.";
     settings.hasForm = true;
+    settings.formLayout.width = v1::AdapterConfigSize::Wide;
+    settings.formLayout.columns = 2;
+    settings.formLayout.labelWidth = v1::AdapterConfigSize::Wide;
     settings.metaJson = R"({"placement":"card","kind":"open_dialog","requiresAck":true})";
     caps.instanceActions.push_back(settings);
 
@@ -245,14 +187,12 @@ v1::AdapterCapabilities capabilities()
     return caps;
 }
 
-v1::JsonText configSchemaJson()
+v1::AdapterConfigSchema configSchema()
 {
-    Json schema = Json::object();
-    schema["factory"] = section("Zigbee2MQTT", "Configure the MQTT broker used by Zigbee2MQTT.",
-                                baseSchemaFields());
-    schema["instance"] = section("Zigbee2MQTT", "Configure the MQTT broker used by Zigbee2MQTT.",
-                                 instanceSettingsFields());
-    return dump(schema);
+    v1::AdapterConfigSchema schema;
+    schema.factory = brokerSection();
+    schema.instance = instanceSection();
+    return schema;
 }
 
 } // namespace phicore::z2m::ipc
