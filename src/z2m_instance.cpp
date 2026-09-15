@@ -225,10 +225,10 @@ protected:
         const Json params = parseObject(request.paramsJson);
 
         if (actionId == "settings") {
-            v1::Utf8String error;
-            if (!params.empty() && !sendAdapterMetaUpdated(dump(params), &error))
-                std::cerr << "failed to send adapterMetaUpdated(settings): " << error << '\n';
-            answerAction(request.cmdId, v1::CmdStatus::Success, {});
+            if (params.empty())
+                answerSettingsForm(request.cmdId);
+            else
+                applySettings(request.cmdId, params);
             return;
         }
         if (actionId == "probe") {
@@ -502,13 +502,8 @@ private:
                 m_health.answered();
             return;
         }
-        if (path == "health") {
-            const Json health = parseJson(payload);
-            if (!health.is_object())
-                return;
-            Json patch = Json::object();
-            patch["health"] = health;
-            sendMetaPatch(patch);
+        if (path == "response/options") {
+            handleOptionsResponse(parseObject(payload));
             return;
         }
         if (path == "info") {
@@ -608,6 +603,97 @@ private:
         }
     }
 
+    // --- the settings form ---------------------------------------------
+
+    /// The channel the form offers: the one Zigbee2MQTT is configured for,
+    /// which is the active one unless a change waits for a restart.
+    int formChannel() const
+    {
+        const int configured = configuredChannelOf(m_bridgeInfo);
+        return configured > 0 ? configured : activeChannelOf(m_bridgeInfo);
+    }
+
+    void answerSettingsForm(v1::CmdId cmdId)
+    {
+        v1::ActionResponse response;
+        response.id = cmdId;
+        response.status = v1::CmdStatus::Success;
+        response.tsMs = nowMs();
+        response.formValues = bridgeFactsPatch(m_bridgeInfo);
+        for (v1::AdapterFormValue &value : response.formValues) {
+            if (value.key == "zigbeeChannel")
+                value.key = "activeChannel";
+        }
+        if (formChannel() > 0)
+            response.formValues.push_back({"zigbeeChannel", v1::ScalarValue(std::int64_t{formChannel()})});
+        sendResult(response, nullptr);
+    }
+
+    /// The one setting in the dialog is the channel; everything else there is
+    /// what Zigbee2MQTT reports and is not written back.
+    void applySettings(v1::CmdId cmdId, const Json &params)
+    {
+        const int requested = jsonInt(params, "zigbeeChannel", 0);
+        if (requested == 0 || requested == formChannel()) {
+            answerAction(cmdId, v1::CmdStatus::Success, {});
+            return;
+        }
+        if (requested < 11 || requested > 26) {
+            answerAction(cmdId, v1::CmdStatus::InvalidArgument, "A Zigbee channel is between 11 and 26.");
+            return;
+        }
+        if (!brokerConnected() || !m_health.online()) {
+            answerAction(cmdId, v1::CmdStatus::TemporarilyOffline, "Z2M bridge is offline.");
+            return;
+        }
+        const std::string adapter = serialAdapterOf(m_bridgeInfo);
+        if (!movesDevicesToAnotherChannel(adapter)) {
+            answerAction(cmdId, v1::CmdStatus::NotSupported,
+                         "Zigbee2MQTT cannot move the devices of a " + (adapter.empty() ? std::string("this") : adapter)
+                             + " coordinator to another channel; every device would have to be paired again.");
+            return;
+        }
+        Json payload = Json::object();
+        payload["options"] = Json{{"advanced", Json{{"channel", requested}}}};
+        std::string error;
+        if (!m_client->publish(bridgeTopic("request/options"), dump(payload), 0, false, &error)) {
+            answerAction(cmdId, v1::CmdStatus::Failure, error);
+            return;
+        }
+        m_requestedChannel = requested;
+        log(sdk::LogLevel::Info, sdk::LogCategory::Device, "asked Zigbee2MQTT to move the network to channel %1",
+            {std::int64_t{requested}}, "bridge");
+        v1::ActionResponse response;
+        response.id = cmdId;
+        response.status = v1::CmdStatus::Success;
+        response.tsMs = nowMs();
+        response.resultType = v1::ActionResultType::String;
+        response.resultValue = v1::Utf8String(
+            "Zigbee2MQTT restarts and moves the network to channel " + std::to_string(requested)
+            + ". Devices follow within a minute; battery devices when they next wake.");
+        sendResult(response, nullptr);
+    }
+
+    /// A channel takes effect when Zigbee2MQTT starts: it says so with
+    /// `restart_required`, and the restart is what moves the network.
+    void handleOptionsResponse(const Json &response)
+    {
+        if (m_requestedChannel == 0)
+            return;
+        const int channel = m_requestedChannel;
+        m_requestedChannel = 0;
+        if (statusText(response) != "ok") {
+            sendError(sdk::LogCategory::Device, "Zigbee2MQTT refused channel %1: %2",
+                      {std::int64_t{channel}, jsonString(response, "error")}, "bridge", {}, nowMs());
+            return;
+        }
+        if (!jsonBool(jsonValue(response, "data"), "restart_required", false))
+            return;
+        if (!m_client->publish(bridgeTopic("request/restart"), "{}"))
+            sendError(sdk::LogCategory::Device, "could not ask Zigbee2MQTT to restart for channel %1",
+                      {std::int64_t{channel}}, "bridge", {}, nowMs());
+    }
+
     void probeBridgeHealth()
     {
         if (!brokerConnected())
@@ -641,6 +727,7 @@ private:
         // What the bridge says about itself first, and unconditionally: which
         // serial adapter Zigbee2MQTT is driving the coordinator with is a fact
         // about the bridge and does not depend on any device existing.
+        m_bridgeInfo = info;
         sendMetaPatch(bridgeFactsPatch(info));
 
         DeviceEntry *coordinator = m_devices.coordinatorExternalId().empty()
@@ -1068,10 +1155,10 @@ private:
         report(deviceId, channelId, static_cast<std::int64_t>(status), tsMs);
     }
 
-    void sendMetaPatch(const Json &patch)
+    void sendMetaPatch(const v1::AdapterFormValues &patch)
     {
         v1::Utf8String error;
-        if (!sendAdapterMetaUpdated(dump(patch), &error))
+        if (!sendAdapterMetaUpdated(patch, &error))
             std::cerr << "failed to send adapterMetaUpdated: " << error << '\n';
     }
 
@@ -1180,6 +1267,10 @@ private:
     bool m_linkUp = false;
     bool m_lastSeenRequested = false;
     Json m_pendingBridgeInfo;
+    /// The last `bridge/info`, for the settings form.
+    Json m_bridgeInfo;
+    /// The channel asked for in `bridge/request/options`, until Zigbee2MQTT answered.
+    int m_requestedChannel = 0;
 
     DeviceTable m_devices;
     sdk::ButtonPresses m_presses;

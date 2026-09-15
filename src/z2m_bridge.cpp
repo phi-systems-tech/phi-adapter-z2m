@@ -26,53 +26,55 @@ std::string coordinatorFirmware(const Json &coordinatorMeta)
 
 } // namespace
 
-Json bridgeFactsPatch(const Json &info)
+v1::AdapterFormValues bridgeFactsPatch(const Json &info)
 {
     const Json coordinator = jsonValue(info, "coordinator");
     const Json coordinatorMeta = jsonValue(coordinator, "meta");
     const Json serial = jsonValue(jsonValue(info, "config"), "serial");
     const Json network = jsonValue(info, "network");
 
-    Json patch = Json::object();
-    patch["bridge_info"] = info;
+    v1::AdapterFormValues facts;
+    const auto text = [&facts](const char *key, const std::string &value) {
+        if (!value.empty())
+            facts.push_back({key, v1::ScalarValue(value)});
+    };
 
-    const std::string version = jsonString(info, "version", false);
-    if (!version.empty())
-        patch["z2mVersion"] = version;
-    const std::string commit = jsonString(info, "commit", false);
-    if (!commit.empty())
-        patch["z2mCommit"] = commit;
-    if (info.is_object() && info.contains("permit_join"))
-        patch["permitJoin"] = info.at("permit_join");
-    if (info.is_object() && info.contains("log_level"))
-        patch["logLevel"] = info.at("log_level");
-    if (network.is_object() && network.contains("channel"))
-        patch["zigbeeChannel"] = network.at("channel");
-
-    const std::string panId = str::trimmed(jsonScalarText(jsonValue(network, "pan_id")));
-    if (!panId.empty())
-        patch["panId"] = panId;
-    const std::string extPanId = str::trimmed(jsonScalarText(jsonValue(network, "extended_pan_id")));
-    if (!extPanId.empty())
-        patch["extPanId"] = extPanId;
-
-    const std::string serialPort = jsonString(serial, "port");
-    if (!serialPort.empty())
-        patch["serialPort"] = serialPort;
+    text("z2mVersion", jsonString(info, "version", false));
+    text("z2mCommit", jsonString(info, "commit", false));
+    if (const Json permitJoin = jsonValue(info, "permit_join"); permitJoin.is_boolean())
+        facts.push_back({"permitJoin", v1::ScalarValue(permitJoin.get<bool>())});
+    if (const Json channel = jsonValue(network, "channel"); channel.is_number_integer())
+        facts.push_back({"zigbeeChannel", v1::ScalarValue(channel.get<std::int64_t>())});
+    text("panId", str::trimmed(jsonScalarText(jsonValue(network, "pan_id"))));
+    text("extPanId", str::trimmed(jsonScalarText(jsonValue(network, "extended_pan_id"))));
+    text("serialPort", jsonString(serial, "port"));
     // Zigbee2MQTT's own word for the driver it opened the stick with: `ember`,
     // `zstack`, `deconz`. The host layer names the same thing a radio family,
     // and the two agreeing is worth being able to see rather than assume.
-    const std::string serialAdapter = jsonString(serial, "adapter");
-    if (!serialAdapter.empty())
-        patch["serialAdapter"] = serialAdapter;
+    text("serialAdapter", serialAdapterOf(info));
+    text("coordinatorType", jsonString(coordinator, "type"));
+    text("coordinatorFirmware", coordinatorFirmware(coordinatorMeta));
+    return facts;
+}
 
-    const std::string coordinatorType = jsonString(coordinator, "type");
-    if (!coordinatorType.empty())
-        patch["coordinatorType"] = coordinatorType;
-    const std::string firmware = coordinatorFirmware(coordinatorMeta);
-    if (!firmware.empty())
-        patch["coordinatorFirmware"] = firmware;
-    return patch;
+int activeChannelOf(const Json &info)
+{
+    return jsonInt(jsonValue(info, "network"), "channel", 0);
+}
+
+int configuredChannelOf(const Json &info)
+{
+    return jsonInt(jsonValue(jsonValue(info, "config"), "advanced"), "channel", 0);
+}
+
+std::string serialAdapterOf(const Json &info)
+{
+    return jsonString(jsonValue(jsonValue(info, "config"), "serial"), "adapter");
+}
+
+bool movesDevicesToAnotherChannel(std::string_view serialAdapter)
+{
+    return serialAdapter == "ember" || serialAdapter == "zstack";
 }
 
 void applyBridgeInfoToCoordinator(const Json &info, DeviceEntry &entry)

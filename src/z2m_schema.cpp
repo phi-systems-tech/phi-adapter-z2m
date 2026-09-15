@@ -83,15 +83,25 @@ v1::AdapterConfigSection instanceSection()
     out.title = "Zigbee2MQTT";
     out.description = "Configure the MQTT broker used by Zigbee2MQTT.";
 
-    v1::AdapterConfigField channel = field("zigbeeChannel", Type::Integer, "Zigbee channel",
-                                           "Zigbee channel (11-26). Requires restart.", {}, Flag::InstanceOnly, settings);
-    channel.metaJson = R"({"min":11,"max":26,"step":1})";
+    v1::AdapterConfigField channel = field(
+        "zigbeeChannel", Type::Integer, "Zigbee channel",
+        "The channel the network runs on, 11 to 26; 11, 15, 20 and 25 keep clear of Wi-Fi. A change restarts "
+        "Zigbee2MQTT, and devices follow without pairing again - battery devices when they next wake. Only ember "
+        "and zstack coordinators can do that.",
+        {}, Flag::InstanceOnly, settings);
+    channel.minValue = 11;
+    channel.maxValue = 26;
+    channel.step = 1;
     channel.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    v1::AdapterConfigField activeChannel = field("activeChannel", Type::Integer, "Active channel",
+                                                 "The channel the network runs on right now.", {}, readOnly, settings);
+    activeChannel.layout.controlWidth = v1::AdapterConfigSize::Narrow;
 
     out.fields = {
         field("z2mVersion", Type::String, "Z2M Version", "Detected Zigbee2MQTT version.", {}, readOnly, settings),
         field("z2mCommit", Type::String, "Z2M Commit", "Detected Zigbee2MQTT commit.", {}, readOnly, settings),
         channel,
+        activeChannel,
         field("panId", Type::String, "PAN ID", "Current Zigbee PAN ID.", {}, readOnly, settings),
         field("extPanId", Type::String, "Extended PAN ID", "Current Zigbee extended PAN ID.", {}, readOnly, settings),
         field("serialPort", Type::String, "Serial port", "Configured coordinator serial port.", {}, readOnly, settings),
@@ -142,7 +152,6 @@ v1::AdapterCapabilities capabilities()
     probe.id = "probe";
     probe.label = "Test connection";
     probe.description = "Reachability check.";
-    probe.metaJson = R"({"placement":"card","kind":"command","requiresAck":true})";
     caps.factoryActions.push_back(probe);
 
     v1::AdapterActionDescriptor settings;
@@ -153,7 +162,8 @@ v1::AdapterCapabilities capabilities()
     settings.formLayout.width = v1::AdapterConfigSize::Wide;
     settings.formLayout.columns = 2;
     settings.formLayout.labelWidth = v1::AdapterConfigSize::Wide;
-    settings.metaJson = R"({"placement":"card","kind":"open_dialog","requiresAck":true})";
+    settings.kind = v1::AdapterActionKind::OpenDialog;
+    settings.loadFormOnOpen = true;
     caps.instanceActions.push_back(settings);
 
     v1::AdapterActionDescriptor permitJoin;
@@ -161,16 +171,14 @@ v1::AdapterCapabilities capabilities()
     permitJoin.label = "Open pairing (2 min)";
     permitJoin.description = "Allow new Zigbee devices to join for 2 minutes.";
     permitJoin.cooldownMs = 120000;
-    permitJoin.metaJson = R"({"placement":"card","kind":"command","requiresAck":true})";
     caps.instanceActions.push_back(permitJoin);
 
     v1::AdapterActionDescriptor restart;
     restart.id = "restartZ2M";
     restart.label = "Restart Zigbee2MQTT";
     restart.description = "Restarts Zigbee2MQTT. Devices may be unavailable briefly.";
-    restart.confirmJson =
-        R"({"title":"Restart Zigbee2MQTT?","message":"This will briefly disconnect Zigbee devices. Continue?","okText":"Restart","cancelText":"Cancel","danger":true})";
-    restart.metaJson = R"({"placement":"card","kind":"command","requiresAck":true})";
+    restart.danger = true;
+    restart.confirm = {"Restart Zigbee2MQTT?", "This will briefly disconnect Zigbee devices. Continue?", "Restart", "Cancel"};
     caps.instanceActions.push_back(restart);
 
     v1::AdapterActionDescriptor deleteDevice;
@@ -178,12 +186,10 @@ v1::AdapterCapabilities capabilities()
     deleteDevice.label = "Delete device";
     deleteDevice.description = "Remove a device from Zigbee2MQTT.";
     deleteDevice.danger = true;
-    deleteDevice.confirmJson =
-        R"({"title":"Delete device?","message":"This removes the device from Zigbee2MQTT. Continue?","okText":"Delete","cancelText":"Cancel","danger":true})";
-    deleteDevice.metaJson = R"({"placement":"device","kind":"command","requiresAck":true})";
+    deleteDevice.placement = v1::AdapterActionPlacement::Device;
+    deleteDevice.confirm = {"Delete device?", "This removes the device from Zigbee2MQTT. Continue?", "Delete", "Cancel"};
     caps.instanceActions.push_back(deleteDevice);
 
-    caps.defaultsJson = R"({"host":"localhost","port":1883,"retryIntervalMs":10000,"baseTopic":"zigbee2mqtt"})";
     return caps;
 }
 

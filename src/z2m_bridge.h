@@ -20,9 +20,22 @@
 
 namespace phicore::z2m::ipc {
 
-/// The meta patch `bridge/info` turns into: version, commit, channel, PAN ids,
-/// serial port and adapter, coordinator type and firmware, permit-join state.
-Json bridgeFactsPatch(const Json &info);
+/// The meta patch `bridge/info` turns into: version, commit, active channel,
+/// PAN ids, serial port and adapter, coordinator type and firmware, permit-join
+/// state. Facts a client shows, scalars only.
+phicore::adapter::v1::AdapterFormValues bridgeFactsPatch(const Json &info);
+
+/// The channel the network runs on (`network.channel`), 0 when not reported.
+int activeChannelOf(const Json &info);
+/// The channel Zigbee2MQTT is configured for (`config.advanced.channel`): the
+/// one it moves the network to at its next start.
+int configuredChannelOf(const Json &info);
+/// `config.serial.adapter`: ember, zstack, deconz, zigate, zboss.
+std::string serialAdapterOf(const Json &info);
+/// Whether Zigbee2MQTT moves paired devices along when the channel changes.
+/// zigbee-herdsman does it for ember and zstack; on the other drivers every
+/// device would have to be paired again.
+bool movesDevicesToAnotherChannel(std::string_view serialAdapter);
 
 /// What `bridge/info` adds to the coordinator's device entry: manufacturer,
 /// model, firmware, and the serial port and adapter in its meta.

@@ -322,23 +322,44 @@ void testSuppressedPropertiesAreNotChannels()
 /// of any device.
 void testBridgeFacts()
 {
-    const Json facts = bridgeFactsPatch(parseObject(kBridgeInfo));
-    PHI_CHECK(facts["serialAdapter"] == "ember");
-    PHI_CHECK(facts["coordinatorType"] == "EmberZNet");
-    PHI_CHECK(facts["coordinatorFirmware"] == "7.4.4.0");
-    PHI_CHECK(facts["serialPort"] == "/dev/serial/by-id/usb-Itead_Sonoff-if00");
-    PHI_CHECK(facts["z2mVersion"] == "2.13.0");
-    PHI_CHECK(facts["z2mCommit"] == "abc1234");
-    PHI_CHECK(facts["zigbeeChannel"] == 15);
-    PHI_CHECK(facts["panId"] == "6754");
-    PHI_CHECK(facts["extPanId"] == "0xdddddddddddddddd");
-    PHI_CHECK(facts["permitJoin"] == false);
-    PHI_CHECK(facts["logLevel"] == "info");
+    const v1::AdapterFormValues facts = bridgeFactsPatch(parseObject(kBridgeInfo));
+    const auto fact = [](const v1::AdapterFormValues &values, const char *key) -> v1::ScalarValue {
+        for (const v1::AdapterFormValue &value : values) {
+            if (value.key == key)
+                return std::get<v1::ScalarValue>(value.data);
+        }
+        return {};
+    };
+    const auto text = [&fact](const v1::AdapterFormValues &values, const char *key) {
+        const v1::ScalarValue value = fact(values, key);
+        return std::holds_alternative<v1::Utf8String>(value) ? std::get<v1::Utf8String>(value) : v1::Utf8String();
+    };
+    PHI_CHECK(text(facts, "serialAdapter") == "ember");
+    PHI_CHECK(text(facts, "coordinatorType") == "EmberZNet");
+    PHI_CHECK(text(facts, "coordinatorFirmware") == "7.4.4.0");
+    PHI_CHECK(text(facts, "serialPort") == "/dev/serial/by-id/usb-Itead_Sonoff-if00");
+    PHI_CHECK(text(facts, "z2mVersion") == "2.13.0");
+    PHI_CHECK(text(facts, "z2mCommit") == "abc1234");
+    PHI_CHECK(fact(facts, "zigbeeChannel") == v1::ScalarValue(std::int64_t{15}));
+    PHI_CHECK(text(facts, "panId") == "6754");
+    PHI_CHECK(text(facts, "extPanId") == "0xdddddddddddddddd");
+    PHI_CHECK(fact(facts, "permitJoin") == v1::ScalarValue(false));
+    // Facts only: nothing the adapter alone would read back rides along.
+    PHI_CHECK(std::holds_alternative<std::monostate>(fact(facts, "logLevel")));
+    PHI_CHECK(std::holds_alternative<std::monostate>(fact(facts, "bridge_info")));
 
-    const Json sparse = bridgeFactsPatch(parseObject(R"({"version":"2.13.0"})"));
-    PHI_CHECK(sparse["z2mVersion"] == "2.13.0");
-    PHI_CHECK(!sparse.contains("serialAdapter"));
-    PHI_CHECK(!sparse.contains("coordinatorType"));
+    const v1::AdapterFormValues sparse = bridgeFactsPatch(parseObject(R"({"version":"2.13.0"})"));
+    PHI_CHECK(text(sparse, "z2mVersion") == "2.13.0");
+    PHI_CHECK(text(sparse, "serialAdapter").empty());
+    PHI_CHECK(text(sparse, "coordinatorType").empty());
+
+    // The channel it runs on and the one it is configured for, and who can
+    // move devices from one to the other.
+    const Json pending = parseObject(
+        R"({"network":{"channel":11},"config":{"advanced":{"channel":15},"serial":{"adapter":"ember"}}})");
+    PHI_CHECK(activeChannelOf(pending) == 11 && configuredChannelOf(pending) == 15);
+    PHI_CHECK(movesDevicesToAnotherChannel(serialAdapterOf(pending)));
+    PHI_CHECK(movesDevicesToAnotherChannel("zstack") && !movesDevicesToAnotherChannel("deconz"));
 
     DeviceEntry coordinator = buildDeviceEntry(
         parseObject(R"({"friendly_name":"Coordinator","ieee_address":"0x00124b0029ab1234","type":"Coordinator"})"),
