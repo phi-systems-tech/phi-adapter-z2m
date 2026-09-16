@@ -1,3 +1,11 @@
+phi-adapter-z2m (0.0~git202609161836.fa61269-1) trixie; urgency=medium
+
+  * Say the reason again when the reason changes: the down line names
+    the half that is still missing, not the one that recovered a second
+    earlier
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 16 Sep 2026 18:36:36 +0200
+
 phi-adapter-z2m (0.0~git202609161826.219f632-1) trixie; urgency=medium
 
   * Say which half of the link is missing
