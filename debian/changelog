@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202609161826.219f632-1) trixie; urgency=medium
+
+  * Say which half of the link is missing
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 16 Sep 2026 18:26:56 +0200
+
 phi-adapter-z2m (0.0~git202609161503.5f054c9-1) trixie; urgency=medium
 
   * Say nothing the host already said: no stderr banner, config.changed
