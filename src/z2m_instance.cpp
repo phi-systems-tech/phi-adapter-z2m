@@ -13,6 +13,8 @@
 
 #include "phi/adapter/sdk/button_presses.h"
 #include "phi/adapter/v1/tlsconfig.h"
+#include "phi/adapter/sdk/reachability.h"
+
 #include "phi/runtime/loop.h"
 #include "phi/runtime/str.h"
 
@@ -348,7 +350,10 @@ private:
     void applyConfig()
     {
         const int retry = jsonInt(m_meta, "retryIntervalMs", kDefaultRetryIntervalMs);
-        m_retryIntervalMs = retry >= 1000 ? retry : kDefaultRetryIntervalMs;
+        // Floored and capped like every other adapter's: a typo used to be
+        // able to park the reconnect arbitrarily far out.
+        m_retryIntervalMs = std::clamp(retry >= 1000 ? retry : kDefaultRetryIntervalMs, 1000, 600000);
+        m_broker = sdk::Reachability(brokerPolicy());
         m_baseTopic = normalizedBaseTopic(jsonString(m_meta, "baseTopic"));
         m_settings = mqttSettingsFor(m_info, m_meta);
     }
@@ -396,17 +401,32 @@ private:
         updateLink();
     }
 
+    /// A broker that refuses one connection is not there; what grows is the
+    /// wait, so one that is down for an hour is dialled a handful of times
+    /// rather than three hundred and sixty.
+    [[nodiscard]] sdk::Reachability::Policy brokerPolicy() const
+    {
+        const auto retry = static_cast<std::int64_t>(m_retryIntervalMs);
+        sdk::Reachability::Policy policy;
+        policy.intervalMs = retry;
+        policy.strikes = 1;
+        policy.retryDelaysMs = {retry, 2 * retry, 3 * retry, 6 * retry};
+        return policy;
+    }
+
     void scheduleReconnect()
     {
         if (m_lifecycle != Lifecycle::Running || !m_loop)
             return;
-        m_reconnect = m_loop->timerAfter(std::chrono::milliseconds(m_retryIntervalMs),
+        m_reconnect = m_loop->timerAfter(std::chrono::milliseconds(m_nextDialMs > 0 ? m_nextDialMs
+                                                                                    : m_retryIntervalMs),
                                          [this]() { connectToBroker(); });
     }
 
     void onBrokerConnected()
     {
-        m_lastBrokerProblem.clear();
+        const sdk::Reachability::Verdict verdict = m_broker.answered(nowMs());
+        m_nextDialMs = verdict.waitMs;
         std::cerr << "z2m-ipc connected to " << m_settings.host << ":" << m_settings.port << '\n';
         std::string error;
         if (!m_client->subscribe(m_baseTopic + "/#", 0, &error)) {
@@ -442,9 +462,12 @@ private:
     /// down for an hour is one fact, not three hundred and sixty.
     void reportBrokerProblem(const std::string &reason)
     {
-        if (reason.empty() || reason == m_lastBrokerProblem)
+        if (reason.empty())
             return;
-        m_lastBrokerProblem = reason;
+        const sdk::Reachability::Verdict verdict = m_broker.missed(reason, nowMs());
+        m_nextDialMs = verdict.waitMs;
+        if (!verdict.say)
+            return;
         v1::Utf8String error;
         sendError(sdk::LogCategory::Network, "MQTT: " + reason, {}, "broker", {}, nowMs(), &error);
         std::cerr << "z2m-ipc broker: " << reason << '\n';
@@ -1257,7 +1280,9 @@ private:
     MqttSettings m_settings;
     std::string m_baseTopic = "zigbee2mqtt";
     int m_retryIntervalMs = kDefaultRetryIntervalMs;
-    std::string m_lastBrokerProblem;
+    sdk::Reachability m_broker;
+    /// What the gate said to wait before dialling the broker again.
+    std::int64_t m_nextDialMs = 0;
 
     phi::runtime::Timer m_reconnect;
     phi::runtime::Timer m_healthTimer;

@@ -89,6 +89,14 @@ and mosquitto restores it from persistence across its own restarts. An
 The probe runs on every MQTT connect, on every `online` the broker replays, and
 once a minute after that. Two unanswered probes, not one, bring the link down.
 
+The broker itself is the other thing that can go away. A connection it refuses
+is said once - a broker that is down for an hour is one fact, not three hundred
+and sixty - and the wait before dialling again grows from `retryIntervalMs` to
+six times it. That counting and that rule are `sdk::Reachability`
+(phi-adapter-sdk README, "A Device That Stops Answering"); `retryIntervalMs` is
+now capped at ten minutes like every other adapter's, where a typo could park
+it arbitrarily far out.
+
 This needs Zigbee2MQTT 2.x, where `health_check` exists as a bridge request.
 
 ### Adapter-Dev Guideline: Enum Mapping
