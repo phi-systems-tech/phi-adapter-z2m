@@ -107,7 +107,8 @@ private:
     {
         v1::Utf8String error;
         if (!sendResult(response, &error))
-            std::cerr << "failed to send factory.action.invoke result: " << error << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                "failed to send the factory.action.invoke result: %1", {error});
     }
 };
 
@@ -120,6 +121,7 @@ int main(int argc, char **argv)
         ? argv[1]
         : (envSocketPath ? envSocketPath : v1::Utf8String("/tmp/phi-adapter-z2m-ipc.sock"));
 
+    // Before the dispatcher exists there is nowhere else to say this.
     std::cerr << "starting phi_adapter_z2m_ipc for pluginType=" << kPluginType
               << " socket=" << socketPath << '\n';
 

@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
-#include <iostream>
 #include <map>
 #include <optional>
 #include <string>
@@ -94,7 +93,8 @@ protected:
     {
         m_loop = phi::runtime::Loop::current();
         if (m_loop == nullptr) {
-            std::cerr << "z2m instance started off a loop; no timers are possible\n";
+            log(sdk::LogLevel::Error, sdk::LogCategory::Lifecycle,
+                "started off a loop; no timers are possible");
             return false;
         }
         m_client.emplace(*m_loop);
@@ -148,16 +148,17 @@ protected:
         const bool sameBroker = m_settings.sameConnection(previousSettings)
             && m_baseTopic == previousBaseTopic;
         if (sameBroker && brokerConnected()) {
-            std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
-                      << " externalId=" << m_info.externalId << " (same broker, kept)\n";
+            log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
+                "config.changed adapterId=%1 externalId=%2 (same broker, kept)",
+                {static_cast<std::int64_t>(request.adapterId), m_info.externalId});
             return;
         }
 
-        std::cerr << "z2m-ipc config.changed adapterId=" << request.adapterId
-                  << " externalId=" << m_info.externalId
-                  << " broker=" << m_settings.host << ":" << m_settings.port
-                  << " tls=" << (m_settings.tls.enabled ? "on" : "off")
-                  << " baseTopic=" << m_baseTopic << '\n';
+        log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
+            "config.changed adapterId=%1 externalId=%2 broker=%3:%4 tls=%5 baseTopic=%6",
+            {static_cast<std::int64_t>(request.adapterId), m_info.externalId,
+             v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port),
+             m_settings.tls.enabled, v1::Utf8String(m_baseTopic)});
 
         // A new answer about where the broker is means a new connection,
         // whatever the old one was doing.
@@ -427,7 +428,8 @@ private:
     {
         const sdk::Reachability::Verdict verdict = m_broker.answered(nowMs());
         m_nextDialMs = verdict.waitMs;
-        std::cerr << "z2m-ipc connected to " << m_settings.host << ":" << m_settings.port << '\n';
+        log(sdk::LogLevel::Info, sdk::LogCategory::Network, "connected to the broker at %1:%2",
+            {v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port)});
         std::string error;
         if (!m_client->subscribe(m_baseTopic + "/#", 0, &error)) {
             reportBrokerProblem(error);
@@ -470,7 +472,8 @@ private:
             return;
         v1::Utf8String error;
         sendError(sdk::LogCategory::Network, "MQTT: " + reason, {}, "broker", {}, nowMs(), &error);
-        std::cerr << "z2m-ipc broker: " << reason << '\n';
+        log(sdk::LogLevel::Warn, sdk::LogCategory::Network, "the broker is not usable: %1",
+            {v1::Utf8String(reason)});
     }
 
     void onBrokerMessage(const MqttClient::Message &message)
@@ -795,9 +798,11 @@ private:
             handleBridgeInfo(info, tsMs);
         }
         if (!result.announce.empty() || !result.removed.empty()) {
-            std::cerr << "z2m-ipc devices: known=" << m_devices.all().size()
-                      << " announced=" << result.announce.size()
-                      << " removed=" << result.removed.size() << '\n';
+            log(sdk::LogLevel::Info, sdk::LogCategory::Device,
+                "devices: %1 known, %2 announced, %3 removed",
+                {static_cast<std::int64_t>(m_devices.all().size()),
+                 static_cast<std::int64_t>(result.announce.size()),
+                 static_cast<std::int64_t>(result.removed.size())});
         }
     }
 
@@ -913,7 +918,8 @@ private:
     {
         v1::Utf8String error;
         if (!sendDeviceUpdated(entry.forWire(), entry.channels, &error))
-            std::cerr << "failed to send deviceUpdated(" << entry.mqttId << "): " << error << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send deviceUpdated(%1): %2",
+                {v1::Utf8String(entry.mqttId), error});
     }
 
     void handleDeviceState(const std::string &mqttId, const Json &payload, bool retained,
@@ -1106,7 +1112,8 @@ private:
         if (const ChannelBinding *availability = entry->availabilityBinding()) {
             reportConnectivity(coordinatorId, availability->channelId,
                                v1::ConnectivityStatus::Connected, tsMs);
-            std::cerr << "z2m-ipc coordinator " << coordinatorId << " reported reachable\n";
+            log(sdk::LogLevel::Debug, sdk::LogCategory::Device, "coordinator %1 reported reachable",
+                {v1::Utf8String(coordinatorId)});
         }
     }
 
@@ -1149,7 +1156,8 @@ private:
     {
         v1::Utf8String error;
         if (!sendChannelStateUpdated(deviceId, channelId, value, tsMs, &error))
-            std::cerr << "failed to send channelStateUpdated(" << channelId << "): " << error << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                "failed to send channelStateUpdated(%1): %2", {v1::Utf8String(channelId), error});
     }
 
     void reportReading(const std::string &deviceId, const std::string &channelId,
@@ -1163,11 +1171,13 @@ private:
         case Reading::Shape::Color:
             if (!sendChannelColorStateUpdated(deviceId, channelId, reading.color.r, reading.color.g,
                                               reading.color.b, tsMs, &error))
-                std::cerr << "failed to send channelColorStateUpdated: " << error << '\n';
+                log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                    "failed to send channelColorStateUpdated: %1", {error});
             return;
         case Reading::Shape::Object:
             if (!sendChannelObjectStateUpdated(deviceId, channelId, reading.fields, tsMs, &error))
-                std::cerr << "failed to send channelObjectStateUpdated: " << error << '\n';
+                log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                    "failed to send channelObjectStateUpdated: %1", {error});
             return;
         }
     }
@@ -1182,7 +1192,8 @@ private:
     {
         v1::Utf8String error;
         if (!sendAdapterMetaUpdated(patch, &error))
-            std::cerr << "failed to send adapterMetaUpdated: " << error << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                "failed to send adapterMetaUpdated: %1", {error});
     }
 
     // --- the link to core -------------------------------------------------
@@ -1197,10 +1208,11 @@ private:
         if (m_linkUp == up && !force)
             return;
         m_linkUp = up;
-        std::cerr << "z2m-ipc link " << (up ? "up" : "down") << '\n';
+        log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle, up ? "link up" : "link down");
         v1::Utf8String error;
         if (!sendConnectionStateChanged(up, &error))
-            std::cerr << "failed to send connectionStateChanged: " << error << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                "failed to send connectionStateChanged: %1", {error});
         m_linkSettle.reset();
         if (!up)
             return;
@@ -1229,7 +1241,8 @@ private:
         response.error = error;
         v1::Utf8String sendError;
         if (!sendResult(response, &sendError))
-            std::cerr << "failed to send cmd result: " << sendError << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send the command result: %1",
+                {sendError});
     }
 
     void answerAction(v1::CmdId cmdId, v1::CmdStatus status, const std::string &error)
@@ -1242,7 +1255,8 @@ private:
         response.resultType = v1::ActionResultType::None;
         v1::Utf8String sendError;
         if (!sendResult(response, &sendError))
-            std::cerr << "failed to send action result: " << sendError << '\n';
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send the action result: %1",
+                {sendError});
     }
 
     void failPending(const std::string &reason)
