@@ -4,7 +4,6 @@
 
 #include <chrono>
 #include <cstdlib>
-#include <iostream>
 #include <memory>
 #include <string>
 
@@ -121,9 +120,6 @@ int main(int argc, char **argv)
         ? argv[1]
         : (envSocketPath ? envSocketPath : v1::Utf8String("/tmp/phi-adapter-z2m-ipc.sock"));
 
-    // Before the dispatcher exists there is nowhere else to say this.
-    std::cerr << "starting phi_adapter_z2m_ipc for pluginType=" << kPluginType
-              << " socket=" << socketPath << '\n';
 
     Z2mFactory factory;
     sdk::SidecarHost host(socketPath, factory);

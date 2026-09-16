@@ -149,15 +149,13 @@ protected:
             && m_baseTopic == previousBaseTopic;
         if (sameBroker && brokerConnected()) {
             log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
-                "config.changed adapterId=%1 externalId=%2 (same broker, kept)",
-                {static_cast<std::int64_t>(request.adapterId), m_info.externalId});
+                "the same broker and base topic: the connection is kept");
             return;
         }
 
         log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
-            "config.changed adapterId=%1 externalId=%2 broker=%3:%4 tls=%5 baseTopic=%6",
-            {static_cast<std::int64_t>(request.adapterId), m_info.externalId,
-             v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port),
+            "broker %1:%2 (tls %3), base topic %4",
+            {v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port),
              m_settings.tls.enabled, v1::Utf8String(m_baseTopic)});
 
         // A new answer about where the broker is means a new connection,
@@ -1208,7 +1206,8 @@ private:
         if (m_linkUp == up && !force)
             return;
         m_linkUp = up;
-        log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle, up ? "link up" : "link down");
+        log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle,
+            up ? "the link to Zigbee2MQTT is up" : "the link to Zigbee2MQTT is down");
         v1::Utf8String error;
         if (!sendConnectionStateChanged(up, &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
