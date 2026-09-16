@@ -1,3 +1,12 @@
+phi-adapter-z2m (0.0~git202609161411.89874a3-1) trixie; urgency=medium
+
+  * Log with levels instead of stderr: adapter-domain logging goes
+    through the SDK logger, no more raw stderr writes that core stamps
+    Warn.
+  * Build-Depends and Depends bumped to phi-adapter-sdk (>= 0.19.0).
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 16 Sep 2026 14:11:17 +0200
+
 phi-adapter-z2m (0.0~git202609161201.e34810f-1) trixie; urgency=medium
 
   * z2m: back off from a broker that is not there
