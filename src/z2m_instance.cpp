@@ -1201,13 +1201,32 @@ private:
         setLinkUp(brokerConnected() && m_health.online());
     }
 
+    /// Which half is missing, for the line that says the link is down.
+    ///
+    /// The two are far apart in practice: no broker is a broker that is not
+    /// running or not reachable, while a broker with no bridge behind it is
+    /// the usual shape of a Zigbee2MQTT that cannot start - a coordinator
+    /// that is unplugged, most often. Saying which one it is saves the reader
+    /// the walk from "not connected" to a backend's journal.
+    std::string linkDownReason() const
+    {
+        if (!brokerConnected())
+            return "no connection to the MQTT broker";
+        if (!m_health.online())
+            return "the broker is up, Zigbee2MQTT is not answering";
+        return "nothing is missing";
+    }
+
     void setLinkUp(bool up, bool force = false)
     {
         if (m_linkUp == up && !force)
             return;
         m_linkUp = up;
-        log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle,
-            up ? "the link to Zigbee2MQTT is up" : "the link to Zigbee2MQTT is down");
+        if (up)
+            log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle, "the link to Zigbee2MQTT is up");
+        else
+            log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle,
+                "the link to Zigbee2MQTT is down: %1", {v1::Utf8String(linkDownReason())});
         v1::Utf8String error;
         if (!sendConnectionStateChanged(up, &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
