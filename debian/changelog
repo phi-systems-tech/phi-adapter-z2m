@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202609161201.e34810f-1) trixie; urgency=medium
+
+  * z2m: back off from a broker that is not there
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Wed, 16 Sep 2026 12:01:21 +0200
+
 phi-adapter-z2m (0.0~git202609151747.8e14423-1) trixie; urgency=medium
 
   * Built against SDK 0.17.
