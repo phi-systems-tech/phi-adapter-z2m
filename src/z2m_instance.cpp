@@ -125,6 +125,8 @@ protected:
         disconnectBroker();
         forgetDevices();
         m_linkUp = false;
+        // Nothing was said into the void either, so the next reason is new.
+        m_linkDownSaid.clear();
     }
 
     void onConfigChanged(const sdk::ConfigChangedRequest &request) override
@@ -1199,6 +1201,8 @@ private:
     void updateLink()
     {
         setLinkUp(brokerConnected() && m_health.online());
+        if (!m_linkUp)
+            sayWhyTheLinkIsDown();
     }
 
     /// Which half is missing, for the line that says the link is down.
@@ -1217,16 +1221,34 @@ private:
         return "nothing is missing";
     }
 
+    /// Says why the link is down, once per answer.
+    ///
+    /// Said again when the answer changes, because the two halves come back
+    /// separately: the broker turns up seconds after this adapter starts, and
+    /// a line that named it as the missing one would stand there naming the
+    /// half that is now fine while the reader goes looking in the wrong place.
+    /// A reason that has not changed is the same sentence about the same
+    /// unchanged fact, and is not repeated.
+    void sayWhyTheLinkIsDown()
+    {
+        std::string reason = linkDownReason();
+        if (reason == m_linkDownSaid)
+            return;
+        m_linkDownSaid = reason;
+        log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle,
+            "the link to Zigbee2MQTT is down: %1", {v1::Utf8String(std::move(reason))});
+    }
+
     void setLinkUp(bool up, bool force = false)
     {
         if (m_linkUp == up && !force)
             return;
         m_linkUp = up;
+        m_linkDownSaid.clear();
         if (up)
             log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle, "the link to Zigbee2MQTT is up");
         else
-            log(sdk::LogLevel::Info, sdk::LogCategory::Lifecycle,
-                "the link to Zigbee2MQTT is down: %1", {v1::Utf8String(linkDownReason())});
+            sayWhyTheLinkIsDown();
         v1::Utf8String error;
         if (!sendConnectionStateChanged(up, &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
@@ -1322,6 +1344,9 @@ private:
     phi::runtime::Timer m_linkSettle;
     BridgeHealth m_health;
     bool m_linkUp = false;
+    /// The reason last said out loud while the link was down, so that a reason
+    /// nobody has heard is said and one everybody has heard is not.
+    std::string m_linkDownSaid;
     bool m_lastSeenRequested = false;
     Json m_pendingBridgeInfo;
     /// The last `bridge/info`, for the settings form.
