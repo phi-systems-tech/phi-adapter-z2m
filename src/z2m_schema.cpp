@@ -145,12 +145,12 @@ v1::AdapterCapabilities capabilities()
     caps.required = v1::AdapterRequirement::Host | v1::AdapterRequirement::UsesRetryInterval;
     caps.optional = v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
         | v1::AdapterRequirement::Password;
-    caps.flags = v1::AdapterFlag::SupportsDiscovery | v1::AdapterFlag::SupportsProbe
-        | v1::AdapterFlag::SupportsDeviceRename
+    caps.flags = v1::AdapterCapability::SupportsDiscovery | v1::AdapterCapability::SupportsProbe
+        | v1::AdapterCapability::SupportsDeviceRename
         // Groups are Zigbee2MQTT's own, with a numeric id a rename leaves
         // alone; its scenes are not entities of their own and have no name
         // this adapter could carry, so the other two bits stay off.
-        | v1::AdapterFlag::SupportsGroupRename;
+        | v1::AdapterCapability::SupportsGroupRename;
 
     v1::AdapterActionDescriptor probe;
     probe.id = "probe";
