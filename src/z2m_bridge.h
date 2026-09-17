@@ -13,6 +13,7 @@
 #include <string_view>
 #include <vector>
 
+#include "phi/adapter/v1/group.h"
 #include "phi/adapter/v1/types.h"
 
 #include "z2m_exposes.h"
@@ -102,6 +103,66 @@ struct SnapshotResult {
     std::vector<ConnectivityReport> connectivity;
     /// Devices whose state arrived before their description, now deliverable.
     std::vector<std::pair<std::string, Json>> releasedState;
+};
+
+/// A Zigbee2MQTT group as this adapter knows it.
+///
+/// A group is a Zigbee group address: a set of endpoints that answer to one
+/// broadcast, which is why switching twelve bulbs through one is one radio
+/// frame rather than twelve. Zigbee2MQTT gives it a numeric `id` that never
+/// changes and a `friendly_name` that a person can rename at will, so the id
+/// is what we carry upward as the external id and the friendly name is the
+/// name.
+///
+/// It is a group and never a room: Zigbee2MQTT has no notion of a place, and
+/// calling one a room would invent a fact the vendor never stated. Hue draws
+/// the same line - its rooms are rooms, its zones are groups.
+struct GroupEntry {
+    phicore::adapter::v1::Group group;
+    /// The group meta as an object; `group.metaJson` is derived from it.
+    Json meta = Json::object();
+    /// Zigbee2MQTT's numeric id, which is also the external id as text.
+    int id = 0;
+    /// What the members look like to Zigbee2MQTT, kept because our own
+    /// membership list cannot hold it - see applyGroupSnapshot.
+    std::vector<std::pair<std::string, int>> members;
+
+    /// The group with its meta serialised, ready to send.
+    [[nodiscard]] phicore::adapter::v1::Group forWire() const;
+};
+
+/// What applying a `bridge/groups` list changed. Zigbee2MQTT republishes the
+/// whole retained array whenever anything about any group changes, so this is
+/// diffed for the same reason the device list is: an unchanged group is not
+/// news, and announcing all of them on every membership change would be.
+struct GroupSnapshotResult {
+    /// External ids of groups to (re)announce: new, renamed, or re-membered.
+    std::vector<std::string> announce;
+    /// External ids of groups that are gone.
+    std::vector<std::string> removed;
+    /// Renames seen: external id and the new friendly name.
+    std::vector<std::pair<std::string, std::string>> renamed;
+};
+
+/**
+ * @brief The groups this adapter knows, keyed by their external id.
+ *
+ * Keyed by the numeric id rather than the name, because that is the half a
+ * rename leaves alone.
+ */
+class GroupTable
+{
+public:
+    [[nodiscard]] const GroupEntry *byExternalId(std::string_view externalId) const;
+    [[nodiscard]] const std::map<std::string, GroupEntry> &all() const { return m_byExternalId; }
+
+    /// Diffs a `bridge/groups` payload against what is known.
+    GroupSnapshotResult applySnapshot(const Json &groups);
+
+    void clear();
+
+private:
+    std::map<std::string, GroupEntry> m_byExternalId;
 };
 
 /**

@@ -48,10 +48,41 @@ tested without one.
 | `z2m_exposes` | a `bridge/devices` entry into a device with channels and bindings |
 | `z2m_state` | a state payload into channel values, a channel command into a `set` payload |
 | `z2m_actions` | the `action` vocabulary; the press machine itself is the SDK's `ButtonPresses` |
-| `z2m_bridge` | `bridge/info` facts, the health rule, and the device table the list is diffed against |
+| `z2m_bridge` | `bridge/info` facts, the health rule, and the device and group tables the lists are diffed against |
 | `z2m_instance` | the AdapterInstance: everything that talks to phi-core |
 | `z2m_probe` | the factory's "Test connection" |
 | `z2m_schema` | name, icon, capabilities, configuration form |
+
+### Groups, and why they are not rooms
+
+Zigbee2MQTT publishes its groups on `bridge/groups`, retained and republished
+whole whenever anything about any of them changes - so the list is diffed the
+way the device list is, and a group nobody touched is not announced again.
+
+A group is a Zigbee group address: a set of endpoints that answer to one
+broadcast, which is why switching twelve bulbs through a group is one radio
+frame rather than twelve. It is reported as a group and never as a room.
+Zigbee2MQTT has no notion of a place at all, and calling one a room would
+invent a fact the vendor never stated.
+
+Two things do not line up by themselves and are decided here:
+
+- **Identity.** A group has a numeric `id` that never changes and a
+  `friendly_name` a person can rename at will. The id is the external id, the
+  friendly name is the name - the same split as a device, where the ieee
+  address is the external id and the friendly name is only a label.
+- **Membership.** Zigbee2MQTT addresses a member as an *endpoint* of a device;
+  phi's membership is per device, because that is what a household points at.
+  A device with two endpoints in one group is therefore listed once, and the
+  endpoints it really has are kept in the group's meta, so nothing is lost and
+  nobody has to ask again.
+
+A rename goes out as `bridge/request/group/rename` and is answered either by
+`bridge/response/group/rename` or by the next `bridge/groups` carrying the new
+name, whichever arrives first - the same pair the device rename has. Scenes are
+not covered: Zigbee2MQTT's scenes are not entities of their own, they hang off
+a group or an endpoint and are numbered within it, so this adapter declares
+`SupportsGroupRename` and not `SupportsSceneRename`.
 
 ### How a button press is reported
 

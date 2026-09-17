@@ -194,6 +194,91 @@ void testTheDeviceListIsDiffed()
 
 /// Reachable only while a live Zigbee2MQTT has answered; two silences bring
 /// it down; its own "offline" is believed on sight.
+void testTheGroupListIsDiffed()
+{
+    GroupTable table;
+
+    const Json first = parseJson(R"([
+      {"id":1,"friendly_name":"Living room","members":[
+        {"ieee_address":"0x1","endpoint":1},
+        {"ieee_address":"0x2","endpoint":1}]},
+      {"id":7,"friendly_name":"Outside","members":[]}
+    ])");
+    GroupSnapshotResult result = table.applySnapshot(first);
+    PHI_CHECK(result.announce.size() == 2);
+    PHI_CHECK(result.removed.empty());
+
+    // The numeric id is the external id, because it is the half a rename
+    // leaves alone.
+    const GroupEntry *living = table.byExternalId("1");
+    PHI_CHECK(living != nullptr);
+    PHI_CHECK(living->group.name == "Living room");
+    PHI_CHECK(living->group.deviceExternalIds.size() == 2);
+    PHI_CHECK(living->group.deviceExternalIds[0] == "0x1");
+
+    // The same list again is not news. Zigbee2MQTT republishes the whole
+    // retained array whenever anything about any group changes, so without
+    // this every membership change would announce every group.
+    result = table.applySnapshot(first);
+    PHI_CHECK_MSG(result.announce.empty(), "an unchanged group was re-announced");
+    PHI_CHECK(result.removed.empty());
+
+    // A rename keeps the id and says what the new name is.
+    const Json renamed = parseJson(R"([
+      {"id":1,"friendly_name":"Wohnzimmer","members":[
+        {"ieee_address":"0x1","endpoint":1},
+        {"ieee_address":"0x2","endpoint":1}]},
+      {"id":7,"friendly_name":"Outside","members":[]}
+    ])");
+    result = table.applySnapshot(renamed);
+    PHI_CHECK(result.announce.size() == 1 && result.announce[0] == "1");
+    PHI_CHECK(result.renamed.size() == 1 && result.renamed[0].first == "1"
+              && result.renamed[0].second == "Wohnzimmer");
+    PHI_CHECK(table.byExternalId("1")->group.name == "Wohnzimmer");
+
+    // A device with two endpoints in one group is one member of ours, and the
+    // endpoints it really has are kept in the meta rather than dropped.
+    const Json twoEndpoints = parseJson(R"([
+      {"id":1,"friendly_name":"Wohnzimmer","members":[
+        {"ieee_address":"0x1","endpoint":1},
+        {"ieee_address":"0x1","endpoint":2},
+        {"ieee_address":"0x2","endpoint":1}]},
+      {"id":7,"friendly_name":"Outside","members":[]}
+    ])");
+    result = table.applySnapshot(twoEndpoints);
+    PHI_CHECK(result.announce.size() == 1);
+    const GroupEntry *split = table.byExternalId("1");
+    PHI_CHECK(split->group.deviceExternalIds.size() == 2);
+    PHI_CHECK(split->members.size() == 3);
+    PHI_CHECK(jsonValue(split->meta, "members").size() == 3);
+
+    // A group that is gone is gone, and only that one.
+    const Json fewer = parseJson(R"([
+      {"id":1,"friendly_name":"Wohnzimmer","members":[
+        {"ieee_address":"0x1","endpoint":1},
+        {"ieee_address":"0x1","endpoint":2},
+        {"ieee_address":"0x2","endpoint":1}]}
+    ])");
+    result = table.applySnapshot(fewer);
+    PHI_CHECK(result.removed.size() == 1 && result.removed[0] == "7");
+    PHI_CHECK(result.announce.empty());
+    PHI_CHECK(table.byExternalId("7") == nullptr);
+
+    // Nonsense in the list is skipped rather than believed: a group with no
+    // numeric id is not one we could ever address again.
+    const Json rubbish = parseJson(R"([
+      {"friendly_name":"No id"},
+      "not an object",
+      {"id":1,"friendly_name":"Wohnzimmer","members":[
+        {"ieee_address":"0x1","endpoint":1},
+        {"ieee_address":"0x1","endpoint":2},
+        {"ieee_address":"0x2","endpoint":1}]}
+    ])");
+    result = table.applySnapshot(rubbish);
+    PHI_CHECK(result.announce.empty() && result.removed.empty());
+    PHI_CHECK(table.all().size() == 1);
+}
+
 void testWhoIsHome()
 {
     BridgeHealth health;
@@ -241,6 +326,7 @@ int main()
     testWhereATopicPoints();
     testTheActionVocabulary();
     testTheDeviceListIsDiffed();
+    testTheGroupListIsDiffed();
     testWhoIsHome();
     testWhenADeviceLastSpoke();
     return phi::testing::report("z2m_behaviour_tests");

@@ -319,6 +319,66 @@ protected:
         m_renames[externalId] = std::move(pending);
     }
 
+    void onEntityNameUpdate(const sdk::EntityNameUpdateRequest &request) override
+    {
+        // Zigbee2MQTT has groups and no rooms, and its scenes are not entities
+        // of their own - they hang off a group or an endpoint and are numbered
+        // within it. So this adapter answers for groups and says plainly that
+        // it cannot do the rest, rather than failing later and vaguely.
+        if (request.kind != v1::NamedEntityKind::Group) {
+            answerCommand(request.cmdId, v1::CmdStatus::NotSupported,
+                          "Zigbee2MQTT only names groups");
+            return;
+        }
+
+        const std::string name = str::trimmed(request.name);
+        if (name.empty()) {
+            answerCommand(request.cmdId, v1::CmdStatus::InvalidArgument, "Name must not be empty");
+            return;
+        }
+        const GroupEntry *entry = m_groups.byExternalId(request.entityExternalId);
+        if (entry == nullptr) {
+            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Unknown group");
+            return;
+        }
+        if (m_groupRenames.count(request.entityExternalId)) {
+            answerCommand(request.cmdId, v1::CmdStatus::Busy, "Rename already pending");
+            return;
+        }
+        if (!brokerConnected() || !m_health.online()) {
+            answerCommand(request.cmdId, v1::CmdStatus::TemporarilyOffline,
+                          "MQTT broker not connected");
+            return;
+        }
+
+        // `from` is the numeric id rather than the friendly name: both are
+        // accepted, and the id is the one that cannot be ambiguous.
+        Json payload = Json::object();
+        payload["from"] = entry->id;
+        payload["to"] = name;
+        std::string error;
+        if (!m_client->publish(bridgeTopic("request/group/rename"), dump(payload), 0, false,
+                               &error)) {
+            answerCommand(request.cmdId, v1::CmdStatus::Failure, error);
+            return;
+        }
+
+        PendingRename pending;
+        pending.cmdId = request.cmdId;
+        pending.from = entry->group.name;
+        pending.to = name;
+        const std::string externalId = request.entityExternalId;
+        pending.timeout = m_loop->timerAfter(kRenameTimeout, [this, externalId]() {
+            const auto it = m_groupRenames.find(externalId);
+            if (it == m_groupRenames.end())
+                return;
+            const v1::CmdId cmdId = it->second.cmdId;
+            m_groupRenames.erase(it);
+            answerCommand(cmdId, v1::CmdStatus::Timeout, "Zigbee2MQTT did not confirm the rename");
+        });
+        m_groupRenames[externalId] = std::move(pending);
+    }
+
     void onDeviceEffectInvoke(const sdk::DeviceEffectInvokeRequest &request) override
     {
         answerCommand(request.cmdId, v1::CmdStatus::NotImplemented, "Device effect not supported");
@@ -571,8 +631,25 @@ private:
             }
             return;
         }
-        // bridge/logging, bridge/extensions, bridge/groups, other responses:
-        // not read.
+        if (path == "groups" || path == "response/groups") {
+            const Json doc = parseJson(payload);
+            Json groups;
+            if (doc.is_array()) {
+                groups = doc;
+            } else if (doc.is_object()) {
+                const Json data = jsonValue(doc, "data");
+                if (data.is_array())
+                    groups = data;
+            }
+            if (groups.is_array())
+                handleGroupsList(groups);
+            return;
+        }
+        if (path == "response/group/rename") {
+            handleGroupRenameResponse(parseObject(payload));
+            return;
+        }
+        // bridge/logging, bridge/extensions, other responses: not read.
     }
 
     void handleBridgeState(const std::string &payload)
@@ -793,6 +870,11 @@ private:
         for (const auto &[mqttId, payload] : result.releasedState)
             handleDeviceState(mqttId, payload, true, tsMs);
 
+        if (!m_pendingGroups.is_null() && !m_devices.all().empty()) {
+            const Json groups = m_pendingGroups;
+            m_pendingGroups = Json();
+            handleGroupsList(groups);
+        }
         if (!m_pendingBridgeInfo.is_null() && !m_devices.coordinatorExternalId().empty()) {
             const Json info = m_pendingBridgeInfo;
             handleBridgeInfo(info, tsMs);
@@ -833,6 +915,42 @@ private:
             (void)tsMs;
             return;
         }
+    }
+
+    void handleGroupRenameResponse(const Json &response)
+    {
+        const Json data = jsonValue(response, "data");
+        const std::string from = jsonString(data, "from");
+        const std::string to = jsonString(data, "to");
+        const std::string status = statusText(response);
+        for (auto it = m_groupRenames.begin(); it != m_groupRenames.end(); ++it) {
+            const PendingRename &pending = it->second;
+            const bool matches = (!to.empty() && pending.to == to)
+                || (!from.empty() && pending.from == from);
+            if (!matches)
+                continue;
+            const v1::CmdId cmdId = pending.cmdId;
+            m_groupRenames.erase(it);
+            if (status == "ok") {
+                // The groups list that follows carries the new name; the
+                // answer to the person does not have to wait for it.
+                answerCommand(cmdId, v1::CmdStatus::Success, {});
+            } else {
+                answerCommand(cmdId, v1::CmdStatus::Failure,
+                              errorText(response, "Zigbee2MQTT refused the rename"));
+            }
+            return;
+        }
+    }
+
+    void completeGroupRename(const std::string &externalId, const std::string &newName)
+    {
+        const auto it = m_groupRenames.find(externalId);
+        if (it == m_groupRenames.end() || it->second.to != newName)
+            return;
+        const v1::CmdId cmdId = it->second.cmdId;
+        m_groupRenames.erase(it);
+        answerCommand(cmdId, v1::CmdStatus::Success, {});
     }
 
     void completeRename(const std::string &ieee, const std::string &newName, std::int64_t tsMs)
@@ -913,6 +1031,50 @@ private:
     }
 
     // --- devices ----------------------------------------------------------
+
+    void handleGroupsList(const Json &groups)
+    {
+        // A group names its members by ieee address, and core can only make a
+        // membership out of that once it knows the devices. Both lists are
+        // retained, so on a fresh connection they arrive in whatever order the
+        // broker sends them - if the groups come first they wait here for the
+        // devices, the way a device state that arrives before its description
+        // waits in the table below.
+        if (m_devices.all().empty()) {
+            m_pendingGroups = groups;
+            return;
+        }
+        m_pendingGroups = Json();
+
+        const GroupSnapshotResult result = m_groups.applySnapshot(groups);
+        for (const std::string &externalId : result.removed) {
+            v1::Utf8String error;
+            sendGroupRemoved(externalId, &error);
+        }
+        for (const std::string &externalId : result.announce) {
+            if (const GroupEntry *entry = m_groups.byExternalId(externalId))
+                announceGroup(*entry);
+        }
+        for (const auto &[externalId, newName] : result.renamed)
+            completeGroupRename(externalId, newName);
+
+        if (!result.announce.empty() || !result.removed.empty()) {
+            log(sdk::LogLevel::Info, sdk::LogCategory::Device,
+                "groups: %1 known, %2 announced, %3 removed",
+                {static_cast<std::int64_t>(m_groups.all().size()),
+                 static_cast<std::int64_t>(result.announce.size()),
+                 static_cast<std::int64_t>(result.removed.size())},
+                "bridge");
+        }
+    }
+
+    void announceGroup(const GroupEntry &entry)
+    {
+        v1::Utf8String error;
+        if (!sendGroupUpdated(entry.forWire(), &error))
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send groupUpdated(%1): %2",
+                {v1::Utf8String(entry.group.externalId), error});
+    }
 
     void announce(const DeviceEntry &entry)
     {
@@ -1140,6 +1302,8 @@ private:
     void forgetDevices()
     {
         m_devices.clear();
+        m_groups.clear();
+        m_pendingGroups = Json();
         m_presses.clear();
         m_recentActions.clear();
         m_dialResets.clear();
@@ -1304,6 +1468,9 @@ private:
         for (auto &[externalId, pending] : m_renames)
             answerCommand(pending.cmdId, v1::CmdStatus::Failure, reason);
         m_renames.clear();
+        for (auto &[groupExternalId, pending] : m_groupRenames)
+            answerCommand(pending.cmdId, v1::CmdStatus::Failure, reason);
+        m_groupRenames.clear();
         for (auto &[mqttId, pending] : m_removes)
             answerAction(pending.cmdId, v1::CmdStatus::Failure, reason);
         m_removes.clear();
@@ -1355,12 +1522,17 @@ private:
     int m_requestedChannel = 0;
 
     DeviceTable m_devices;
+    GroupTable m_groups;
+    /// A `bridge/groups` payload that arrived before any device did.
+    Json m_pendingGroups;
     sdk::ButtonPresses m_presses;
     std::map<std::string, std::int64_t> m_recentActions;
     std::map<std::string, phi::runtime::Timer> m_dialResets;
     std::map<std::string, phi::runtime::Timer> m_pressWindows;
     std::map<std::string, phi::runtime::Timer> m_postSetRefresh;
     std::map<std::string, PendingRename> m_renames;
+    /// Group renames in flight, keyed by the group's external id.
+    std::map<std::string, PendingRename> m_groupRenames;
     std::map<std::string, PendingRemove> m_removes;
 };
 

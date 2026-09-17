@@ -1,5 +1,6 @@
 #include "z2m_bridge.h"
 
+#include <algorithm>
 #include <set>
 #include <utility>
 
@@ -342,6 +343,110 @@ void DeviceTable::clear()
     m_mqttByExternal.clear();
     m_heldState.clear();
     m_coordinatorExternalId.clear();
+}
+
+// ---------------------------------------------------------------- groups
+
+phicore::adapter::v1::Group GroupEntry::forWire() const
+{
+    phicore::adapter::v1::Group out = group;
+    out.metaJson = meta.empty() ? std::string() : dump(meta);
+    return out;
+}
+
+const GroupEntry *GroupTable::byExternalId(std::string_view externalId) const
+{
+    const auto it = m_byExternalId.find(std::string(externalId));
+    return it == m_byExternalId.end() ? nullptr : &it->second;
+}
+
+GroupSnapshotResult GroupTable::applySnapshot(const Json &groups)
+{
+    GroupSnapshotResult result;
+    if (!groups.is_array())
+        return result;
+
+    std::map<std::string, GroupEntry> next;
+    for (const Json &raw : groups) {
+        if (!raw.is_object())
+            continue;
+        const Json idValue = jsonValue(raw, "id");
+        if (!idValue.is_number_integer())
+            continue;
+
+        GroupEntry entry;
+        entry.id = idValue.get<int>();
+        // The id, not the name: a rename changes the friendly name and leaves
+        // the id alone, so this is the half that can identify a group across
+        // one. The same reason a device is keyed by its ieee address.
+        entry.group.externalId = std::to_string(entry.id);
+        entry.group.name = jsonString(raw, "friendly_name");
+        if (entry.group.name.empty())
+            entry.group.name = entry.group.externalId;
+
+        // Zigbee2MQTT addresses a member as an endpoint of a device; our own
+        // membership is per device, because that is what a household points
+        // at. A device with two endpoints in one group is therefore listed
+        // once, and what was lost - which endpoints - is kept in the meta, so
+        // a reader can still see it and nothing has to be fetched again.
+        Json memberMeta = Json::array();
+        for (const Json &member : jsonValue(raw, "members")) {
+            if (!member.is_object())
+                continue;
+            const std::string ieee = jsonString(member, "ieee_address");
+            if (ieee.empty())
+                continue;
+            const Json endpointValue = jsonValue(member, "endpoint");
+            const int endpoint = endpointValue.is_number_integer() ? endpointValue.get<int>() : 0;
+            entry.members.emplace_back(ieee, endpoint);
+
+            Json one = Json::object();
+            one["ieee_address"] = ieee;
+            one["endpoint"] = endpoint;
+            memberMeta.push_back(one);
+
+            const auto &ids = entry.group.deviceExternalIds;
+            if (std::find(ids.begin(), ids.end(), ieee) == ids.end())
+                entry.group.deviceExternalIds.push_back(ieee);
+        }
+
+        entry.meta["id"] = entry.id;
+        entry.meta["friendly_name"] = entry.group.name;
+        entry.meta["members"] = memberMeta;
+        next.insert_or_assign(entry.group.externalId, std::move(entry));
+    }
+
+    for (const auto &[externalId, entry] : m_byExternalId) {
+        if (!next.count(externalId))
+            result.removed.push_back(externalId);
+    }
+
+    for (const auto &[externalId, entry] : next) {
+        const auto previous = m_byExternalId.find(externalId);
+        if (previous == m_byExternalId.end()) {
+            result.announce.push_back(externalId);
+            continue;
+        }
+        if (previous->second.group.name != entry.group.name)
+            result.renamed.emplace_back(externalId, entry.group.name);
+        // Announced only where something a client can see actually changed.
+        // The retained array is republished whole on any change to any group,
+        // and an unchanged group going out again is what made the room events
+        // in core noise before anyone looked.
+        if (previous->second.group.name != entry.group.name
+            || previous->second.group.deviceExternalIds != entry.group.deviceExternalIds
+            || previous->second.members != entry.members) {
+            result.announce.push_back(externalId);
+        }
+    }
+
+    m_byExternalId = std::move(next);
+    return result;
+}
+
+void GroupTable::clear()
+{
+    m_byExternalId.clear();
 }
 
 } // namespace phicore::z2m::ipc
