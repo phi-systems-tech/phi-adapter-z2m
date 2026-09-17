@@ -146,7 +146,7 @@ v1::AdapterCapabilities capabilities()
     caps.optional = v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
         | v1::AdapterRequirement::Password;
     caps.flags = v1::AdapterFlag::SupportsDiscovery | v1::AdapterFlag::SupportsProbe
-        | v1::AdapterFlag::SupportsRename;
+        | v1::AdapterFlag::SupportsDeviceRename;
 
     v1::AdapterActionDescriptor probe;
     probe.id = "probe";
