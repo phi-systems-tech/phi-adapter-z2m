@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202609172026.f9a03db-1) trixie; urgency=medium
+
+  * Capability flag split into one per kind: this adapter declares
+    device rename only
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Thu, 17 Sep 2026 20:26:04 +0200
+
 phi-adapter-z2m (0.0~git202609161836.fa61269-1) trixie; urgency=medium
 
   * Say the reason again when the reason changes: the down line names
