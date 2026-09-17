@@ -1,3 +1,16 @@
+phi-adapter-z2m (0.0~git202609172041.731ffe7-1) trixie; urgency=medium
+
+  * Reads bridge/groups and reports Zigbee2MQTT's groups to core,
+    diffed so an unchanged group is not announced again.
+  * The numeric group id is the external id because a rename leaves it
+    alone; membership is per device with the real endpoints kept in the
+    group meta.
+  * A group that arrives before any device waits for them.
+  * Group rename goes over bridge/request/group/rename, so
+    SupportsGroupRename is now declared.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Thu, 17 Sep 2026 20:41:12 +0200
+
 phi-adapter-z2m (0.0~git202609172026.f9a03db-1) trixie; urgency=medium
 
   * Capability flag split into one per kind: this adapter declares
