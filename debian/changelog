@@ -1,3 +1,11 @@
+phi-adapter-z2m (0.0~git202609172148.c8bcd48-1) trixie; urgency=medium
+
+  * AdapterFlag is split into AdapterCapability (what a plugin declares
+    about itself) and AdapterOption (what a household answers for one
+    instance: UseTls, EnableLogs); bit values unchanged
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Thu, 17 Sep 2026 21:48:38 +0200
+
 phi-adapter-z2m (0.0~git202609172041.731ffe7-1) trixie; urgency=medium
 
   * Reads bridge/groups and reports Zigbee2MQTT's groups to core,
