@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -54,6 +55,14 @@ struct CommandValue {
 /// be expressed for this binding.
 bool commandPayload(const ChannelBinding &binding, const CommandValue &value, Json &payload,
                     std::string &error);
+
+/// The `get` sent once a write has settled: every property Zigbee2MQTT
+/// answers for, except the ones just written. Those come back on the state
+/// topic as every state does, and asking for them again is how a Tuya relay
+/// got to contradict itself: for one to five seconds after a command it
+/// answers a read with the value from before the command, and that answer
+/// arrived after the real one and replaced it. Empty when nothing is left.
+Json postSetRefreshRequest(const DeviceEntry &entry, const std::set<std::string> &written);
 
 double scaleToPercent(double raw, double rawMin, double rawMax);
 double scaleFromPercent(double percent, double rawMin, double rawMax);

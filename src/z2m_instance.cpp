@@ -218,7 +218,7 @@ protected:
         // The new state comes back from Zigbee2MQTT on the state topic, as
         // every state does. Nothing is reported from here as a shortcut,
         // because that report would race the real one.
-        schedulePostSetRefresh(entry->mqttId);
+        schedulePostSetRefresh(entry->mqttId, payload);
         answerCommand(request.cmdId, v1::CmdStatus::Success, {});
     }
 
@@ -1279,20 +1279,21 @@ private:
         }
     }
 
-    void schedulePostSetRefresh(const std::string &mqttId)
+    void schedulePostSetRefresh(const std::string &mqttId, const Json &written)
     {
+        // Every write before the timer fires counts: several writes in a row
+        // ask once, and none of what they wrote is asked for.
+        std::set<std::string> &properties = m_postSetWritten[mqttId];
+        for (auto it = written.begin(); it != written.end(); ++it)
+            properties.insert(it.key());
         m_postSetRefresh[mqttId] = m_loop->timerAfter(kPostSetRefreshDelay, [this, mqttId]() {
             m_postSetRefresh.erase(mqttId);
+            const std::set<std::string> properties = m_postSetWritten[mqttId];
+            m_postSetWritten.erase(mqttId);
             const DeviceEntry *entry = m_devices.byMqttId(mqttId);
             if (entry == nullptr || !brokerConnected())
                 return;
-            // Only what Zigbee2MQTT will answer for; a `get` for the rest is
-            // an error line in its log.
-            Json ask = Json::object();
-            for (const auto &[channelId, binding] : entry->bindings) {
-                if (binding.gettable && !binding.property.empty())
-                    ask[binding.property] = "";
-            }
+            const Json ask = postSetRefreshRequest(*entry, properties);
             if (ask.empty())
                 return;
             m_client->publish(deviceTopic(mqttId, "get"), dump(ask));
@@ -1309,6 +1310,7 @@ private:
         m_dialResets.clear();
         m_pressWindows.clear();
         m_postSetRefresh.clear();
+        m_postSetWritten.clear();
         m_pendingBridgeInfo = Json();
         m_lastSeenRequested = false;
     }
@@ -1485,6 +1487,7 @@ private:
         m_dialResets.clear();
         m_pressWindows.clear();
         m_postSetRefresh.clear();
+        m_postSetWritten.clear();
         m_client.reset();
         m_loop = nullptr;
     }
@@ -1530,6 +1533,8 @@ private:
     std::map<std::string, phi::runtime::Timer> m_dialResets;
     std::map<std::string, phi::runtime::Timer> m_pressWindows;
     std::map<std::string, phi::runtime::Timer> m_postSetRefresh;
+    /// What was written since the refresh was last scheduled, per device.
+    std::map<std::string, std::set<std::string>> m_postSetWritten;
     std::map<std::string, PendingRename> m_renames;
     /// Group renames in flight, keyed by the group's external id.
     std::map<std::string, PendingRename> m_groupRenames;

@@ -285,6 +285,18 @@ void enumPayload(const ChannelBinding &binding, const CommandValue &value, Json 
 
 } // namespace
 
+Json postSetRefreshRequest(const DeviceEntry &entry, const std::set<std::string> &written)
+{
+    // Only what Zigbee2MQTT will answer for; a `get` for the rest is an error
+    // line in its log.
+    Json ask = Json::object();
+    for (const auto &[channelId, binding] : entry.bindings) {
+        if (binding.gettable && !binding.property.empty() && !written.contains(binding.property))
+            ask[binding.property] = "";
+    }
+    return ask;
+}
+
 bool commandPayload(const ChannelBinding &binding, const CommandValue &value, Json &payload,
                     std::string &error)
 {

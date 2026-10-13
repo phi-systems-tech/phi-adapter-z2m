@@ -319,6 +319,36 @@ void testWhenADeviceLastSpoke()
     PHI_CHECK(availabilityStatus(Json("unknown")) == v1::ConnectivityStatus::Unknown);
 }
 
+void testARefreshDoesNotAskForWhatWasJustWritten()
+{
+    // A two-gang Tuya relay, as Esszimmer - Treppe is: for a second or more
+    // after `state_l1` is written it answers a read of it with the old value,
+    // and that answer replaced the right one.
+    DeviceEntry entry;
+    entry.mqttId = "Esszimmer - Treppe";
+    const auto bind = [&entry](const std::string &property, bool gettable) {
+        ChannelBinding binding;
+        binding.channelId = property;
+        binding.property = property;
+        binding.gettable = gettable;
+        entry.bindings[property] = binding;
+    };
+    bind("state_l1", true);
+    bind("state_l2", true);
+    bind("backlight_mode", true);
+    bind("linkquality", false);
+
+    Json ask = postSetRefreshRequest(entry, {"state_l1"});
+    PHI_CHECK_MSG(!ask.contains("state_l1"), "the written property was read back");
+    PHI_CHECK(ask.contains("state_l2") && ask.contains("backlight_mode"));
+    PHI_CHECK_MSG(!ask.contains("linkquality"), "asked for a property Zigbee2MQTT cannot get");
+
+    // Nothing is left to ask for when everything readable was written.
+    PHI_CHECK(postSetRefreshRequest(entry, {"state_l1", "state_l2", "backlight_mode"}).empty());
+    // And with nothing written, everything readable is asked for, as before.
+    PHI_CHECK(postSetRefreshRequest(entry, {}).size() == 3);
+}
+
 } // namespace
 
 int main()
@@ -329,5 +359,6 @@ int main()
     testTheGroupListIsDiffed();
     testWhoIsHome();
     testWhenADeviceLastSpoke();
+    testARefreshDoesNotAskForWhatWasJustWritten();
     return phi::testing::report("z2m_behaviour_tests");
 }
