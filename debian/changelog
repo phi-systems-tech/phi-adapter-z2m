@@ -1,3 +1,10 @@
+phi-adapter-z2m (0.0~git202610241700.61d4983-1) trixie; urgency=medium
+
+  * Rebuilt against phi-adapter-sdk 0.25.0 (cameraFeatures, voice and
+    camera kinds; ABI)
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sat, 24 Oct 2026 17:00:25 +0200
+
 phi-adapter-z2m (0.0~git202610221933.21c500f-1) trixie; urgency=medium
 
   * Rebuilt against phi-adapter-sdk 0.24.0 (RoomClass in v1::Room).
