@@ -135,9 +135,9 @@ protected:
             return;
         const MqttSettings previousSettings = m_settings;
         const std::string previousBaseTopic = m_baseTopic;
-        m_info = request.adapter;
-        m_meta = parseObject(request.adapter.metaJson);
-        m_filter = ExposeFilter::fromStaticConfig(parseObject(request.staticConfigJson));
+        m_info = request.adapter();
+        m_meta = parseObject(request.adapter().metaJson());
+        m_filter = ExposeFilter::fromStaticConfig(parseObject(request.staticConfigJson()));
         applyConfig();
         m_lifecycle = Lifecycle::Running;
 
@@ -158,7 +158,7 @@ protected:
         log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
             "broker %1:%2 (tls %3), base topic %4",
             {v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port),
-             m_settings.tls.enabled, v1::Utf8String(m_baseTopic)});
+             m_settings.tls.enabled(), v1::Utf8String(m_baseTopic)});
 
         // A new answer about where the broker is means a new connection,
         // whatever the old one was doing.
@@ -169,90 +169,90 @@ protected:
 
     void onChannelInvoke(const sdk::ChannelInvokeRequest &request) override
     {
-        const DeviceEntry *entry = m_devices.byExternalId(request.deviceExternalId);
+        const DeviceEntry *entry = m_devices.byExternalId(request.deviceExternalId());
         if (entry == nullptr) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Unknown device");
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported, "Unknown device");
             return;
         }
-        const ChannelBinding *binding = entry->binding(request.channelExternalId);
+        const ChannelBinding *binding = entry->binding(request.channelExternalId());
         if (binding == nullptr) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Unknown channel");
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported, "Unknown channel");
             return;
         }
         if (!v1::hasFlag(binding->flags, v1::ChannelFlag::Writable)) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Channel is read-only");
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported, "Channel is read-only");
             return;
         }
         if (!brokerConnected()) {
-            answerCommand(request.cmdId, v1::CmdStatus::TemporarilyOffline,
+            answerCommand(request.cmdId(), v1::CmdStatus::TemporarilyOffline,
                           "MQTT broker not connected");
             return;
         }
         if (!m_health.online()) {
-            answerCommand(request.cmdId, v1::CmdStatus::TemporarilyOffline,
+            answerCommand(request.cmdId(), v1::CmdStatus::TemporarilyOffline,
                           "Zigbee2MQTT bridge is offline");
             return;
         }
 
         CommandValue value;
-        if (request.hasScalarValue)
-            value.scalar = request.value;
+        if (request.hasScalarValue())
+            value.scalar = request.value();
         else
-            value.json = parseJson(request.valueJson);
-        if (!request.hasScalarValue && value.json.is_primitive())
+            value.json = parseJson(request.valueJson());
+        if (!request.hasScalarValue() && value.json.is_primitive())
             value.scalar = scalarOf(value.json);
 
         Json payload = Json::object();
         std::string error;
         if (!commandPayload(*binding, value, payload, error)) {
-            answerCommand(request.cmdId, v1::CmdStatus::InvalidArgument, error);
+            answerCommand(request.cmdId(), v1::CmdStatus::InvalidArgument, error);
             return;
         }
         const std::string topic = binding->endpoint.empty()
             ? deviceTopic(entry->mqttId, "set")
             : deviceTopic(entry->mqttId + "/" + binding->endpoint, "set");
         if (!m_client->publish(topic, dump(payload), 0, false, &error)) {
-            answerCommand(request.cmdId, v1::CmdStatus::Failure, error);
+            answerCommand(request.cmdId(), v1::CmdStatus::Failure, error);
             return;
         }
         // The new state comes back from Zigbee2MQTT on the state topic, as
         // every state does. Nothing is reported from here as a shortcut,
         // because that report would race the real one.
         schedulePostSetRefresh(entry->mqttId, payload);
-        answerCommand(request.cmdId, v1::CmdStatus::Success, {});
+        answerCommand(request.cmdId(), v1::CmdStatus::Success, {});
     }
 
     void onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
     {
-        const std::string actionId = str::trimmed(request.actionId);
-        const Json params = parseObject(request.paramsJson);
+        const std::string actionId = str::trimmed(request.actionId());
+        const Json params = parseObject(request.paramsJson());
 
         if (actionId == "settings") {
             if (params.empty())
-                answerSettingsForm(request.cmdId);
+                answerSettingsForm(request.cmdId());
             else
-                applySettings(request.cmdId, params);
+                applySettings(request.cmdId(), params);
             return;
         }
         if (actionId == "probe") {
-            answerAction(request.cmdId, v1::CmdStatus::NotImplemented, "probe is factory scoped");
+            answerAction(request.cmdId(), v1::CmdStatus::NotImplemented, "probe is factory scoped");
             return;
         }
         if (actionId != "permitJoin" && actionId != "restartZ2M" && actionId != "device.delete") {
-            answerAction(request.cmdId, v1::CmdStatus::NotSupported, "Adapter action not supported");
+            answerAction(request.cmdId(), v1::CmdStatus::NotSupported, "Adapter action not supported");
             return;
         }
         if (!brokerConnected()) {
-            answerAction(request.cmdId, v1::CmdStatus::Failure, "MQTT client not connected.");
+            answerAction(request.cmdId(), v1::CmdStatus::Failure, "MQTT client not connected.");
             return;
         }
         if (!m_health.online()) {
-            answerAction(request.cmdId, v1::CmdStatus::Failure, "Z2M bridge is offline.");
+            answerAction(request.cmdId(), v1::CmdStatus::Failure, "Z2M bridge is offline.");
             return;
         }
 
         if (actionId == "device.delete") {
-            handleDeleteDevice(request.cmdId, params);
+            handleDeleteDevice(request.cmdId(), params);
             return;
         }
 
@@ -267,30 +267,30 @@ protected:
         }
         std::string error;
         if (!m_client->publish(topic, dump(payload), 0, false, &error)) {
-            answerAction(request.cmdId, v1::CmdStatus::Failure, error);
+            answerAction(request.cmdId(), v1::CmdStatus::Failure, error);
             return;
         }
-        answerAction(request.cmdId, v1::CmdStatus::Success, {});
+        answerAction(request.cmdId(), v1::CmdStatus::Success, {});
     }
 
     void onDeviceNameUpdate(const sdk::DeviceNameUpdateRequest &request) override
     {
-        const std::string name = str::trimmed(request.name);
+        const std::string name = str::trimmed(request.name());
         if (name.empty()) {
-            answerCommand(request.cmdId, v1::CmdStatus::InvalidArgument, "Name must not be empty");
+            answerCommand(request.cmdId(), v1::CmdStatus::InvalidArgument, "Name must not be empty");
             return;
         }
-        const DeviceEntry *entry = m_devices.byExternalId(request.deviceExternalId);
+        const DeviceEntry *entry = m_devices.byExternalId(request.deviceExternalId());
         if (entry == nullptr) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Unknown device");
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported, "Unknown device");
             return;
         }
-        if (m_renames.count(request.deviceExternalId)) {
-            answerCommand(request.cmdId, v1::CmdStatus::Busy, "Rename already pending");
+        if (m_renames.count(request.deviceExternalId())) {
+            answerCommand(request.cmdId(), v1::CmdStatus::Busy, "Rename already pending");
             return;
         }
         if (!brokerConnected() || !m_health.online()) {
-            answerCommand(request.cmdId, v1::CmdStatus::TemporarilyOffline,
+            answerCommand(request.cmdId(), v1::CmdStatus::TemporarilyOffline,
                           "MQTT broker not connected");
             return;
         }
@@ -300,14 +300,14 @@ protected:
         std::string error;
         if (!m_client->publish(bridgeTopic("request/device/rename"), dump(payload), 0, false,
                                &error)) {
-            answerCommand(request.cmdId, v1::CmdStatus::Failure, error);
+            answerCommand(request.cmdId(), v1::CmdStatus::Failure, error);
             return;
         }
         PendingRename pending;
-        pending.cmdId = request.cmdId;
+        pending.cmdId = request.cmdId();
         pending.from = entry->mqttId;
         pending.to = name;
-        const std::string externalId = request.deviceExternalId;
+        const std::string externalId = request.deviceExternalId();
         pending.timeout = m_loop->timerAfter(kRenameTimeout, [this, externalId]() {
             const auto it = m_renames.find(externalId);
             if (it == m_renames.end())
@@ -325,28 +325,28 @@ protected:
         // of their own - they hang off a group or an endpoint and are numbered
         // within it. So this adapter answers for groups and says plainly that
         // it cannot do the rest, rather than failing later and vaguely.
-        if (request.kind != v1::NamedEntityKind::Group) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported,
+        if (request.kind() != v1::NamedEntityKind::Group) {
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported,
                           "Zigbee2MQTT only names groups");
             return;
         }
 
-        const std::string name = str::trimmed(request.name);
+        const std::string name = str::trimmed(request.name());
         if (name.empty()) {
-            answerCommand(request.cmdId, v1::CmdStatus::InvalidArgument, "Name must not be empty");
+            answerCommand(request.cmdId(), v1::CmdStatus::InvalidArgument, "Name must not be empty");
             return;
         }
-        const GroupEntry *entry = m_groups.byExternalId(request.entityExternalId);
+        const GroupEntry *entry = m_groups.byExternalId(request.entityExternalId());
         if (entry == nullptr) {
-            answerCommand(request.cmdId, v1::CmdStatus::NotSupported, "Unknown group");
+            answerCommand(request.cmdId(), v1::CmdStatus::NotSupported, "Unknown group");
             return;
         }
-        if (m_groupRenames.count(request.entityExternalId)) {
-            answerCommand(request.cmdId, v1::CmdStatus::Busy, "Rename already pending");
+        if (m_groupRenames.count(request.entityExternalId())) {
+            answerCommand(request.cmdId(), v1::CmdStatus::Busy, "Rename already pending");
             return;
         }
         if (!brokerConnected() || !m_health.online()) {
-            answerCommand(request.cmdId, v1::CmdStatus::TemporarilyOffline,
+            answerCommand(request.cmdId(), v1::CmdStatus::TemporarilyOffline,
                           "MQTT broker not connected");
             return;
         }
@@ -359,15 +359,15 @@ protected:
         std::string error;
         if (!m_client->publish(bridgeTopic("request/group/rename"), dump(payload), 0, false,
                                &error)) {
-            answerCommand(request.cmdId, v1::CmdStatus::Failure, error);
+            answerCommand(request.cmdId(), v1::CmdStatus::Failure, error);
             return;
         }
 
         PendingRename pending;
-        pending.cmdId = request.cmdId;
-        pending.from = entry->group.name;
+        pending.cmdId = request.cmdId();
+        pending.from = entry->group.name();
         pending.to = name;
-        const std::string externalId = request.entityExternalId;
+        const std::string externalId = request.entityExternalId();
         pending.timeout = m_loop->timerAfter(kRenameTimeout, [this, externalId]() {
             const auto it = m_groupRenames.find(externalId);
             if (it == m_groupRenames.end())
@@ -381,12 +381,12 @@ protected:
 
     void onDeviceEffectInvoke(const sdk::DeviceEffectInvokeRequest &request) override
     {
-        answerCommand(request.cmdId, v1::CmdStatus::NotImplemented, "Device effect not supported");
+        answerCommand(request.cmdId(), v1::CmdStatus::NotImplemented, "Device effect not supported");
     }
 
     void onSceneInvoke(const sdk::SceneInvokeRequest &request) override
     {
-        answerCommand(request.cmdId, v1::CmdStatus::NotImplemented,
+        answerCommand(request.cmdId(), v1::CmdStatus::NotImplemented,
                       "Scene invocation not supported");
     }
 
@@ -718,17 +718,16 @@ private:
 
     void answerSettingsForm(v1::CmdId cmdId)
     {
-        v1::ActionResponse response;
-        response.id = cmdId;
-        response.status = v1::CmdStatus::Success;
-        response.tsMs = nowMs();
-        response.formValues = bridgeFactsPatch(m_bridgeInfo);
-        for (v1::AdapterFormValue &value : response.formValues) {
-            if (value.key == "zigbeeChannel")
-                value.key = "activeChannel";
+        v1::ActionResponse response = v1::ActionResponse::success(cmdId);
+        response.setTsMs(nowMs());
+        v1::AdapterFormValues values = bridgeFactsPatch(m_bridgeInfo);
+        for (v1::AdapterFormValue &value : values) {
+            if (value.key() == "zigbeeChannel")
+                value.setKey("activeChannel");
         }
+        response.setFormValues(std::move(values));
         if (formChannel() > 0)
-            response.formValues.push_back({"zigbeeChannel", v1::ScalarValue(std::int64_t{formChannel()})});
+            response.addFormValue("zigbeeChannel", v1::ScalarValue(std::int64_t{formChannel()}));
         sendResult(response, nullptr);
     }
 
@@ -766,14 +765,12 @@ private:
         m_requestedChannel = requested;
         log(sdk::LogLevel::Info, sdk::LogCategory::Device, "asked Zigbee2MQTT to move the network to channel %1",
             {std::int64_t{requested}}, "bridge");
-        v1::ActionResponse response;
-        response.id = cmdId;
-        response.status = v1::CmdStatus::Success;
-        response.tsMs = nowMs();
-        response.resultType = v1::ActionResultType::String;
-        response.resultValue = v1::Utf8String(
-            "Zigbee2MQTT restarts and moves the network to channel " + std::to_string(requested)
-            + ". Devices follow within a minute; battery devices when they next wake.");
+        v1::ActionResponse response = v1::ActionResponse::success(cmdId);
+        response.setTsMs(nowMs());
+        response.setResult(v1::Utf8String("Zigbee2MQTT restarts and moves the network to channel "
+                                          + std::to_string(requested)
+                                          + ". Devices follow within a minute; battery devices when they next wake."),
+                           v1::ActionResultType::String);
         sendResult(response, nullptr);
     }
 
@@ -846,7 +843,7 @@ private:
         reportCoordinatorReachable(tsMs);
         if (const ChannelBinding *update = coordinator->updateBinding()) {
             if (const auto reading = updateReading(jsonValue(info, "update"), true))
-                reportReading(coordinator->device.externalId, update->channelId, *reading, tsMs);
+                reportReading(coordinator->device.externalId(), update->channelId, *reading, tsMs);
         }
     }
 
@@ -1073,7 +1070,7 @@ private:
         v1::Utf8String error;
         if (!sendGroupUpdated(entry.forWire(), &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send groupUpdated(%1): %2",
-                {v1::Utf8String(entry.group.externalId), error});
+                {v1::Utf8String(entry.group.externalId()), error});
     }
 
     void announce(const DeviceEntry &entry)
@@ -1092,7 +1089,7 @@ private:
             m_devices.holdState(mqttId, payload);
             return;
         }
-        const std::string externalId = entry->device.externalId;
+        const std::string externalId = entry->device.externalId();
 
         // Facts about the device that ride along with its state.
         bool metaChanged = false;
@@ -1161,7 +1158,7 @@ private:
         const std::string action = str::toLower(str::trimmed(actionRaw));
         if (action.empty())
             return; // Zigbee2MQTT clears the action after publishing it
-        const std::string &externalId = entry.device.externalId;
+        const std::string &externalId = entry.device.externalId();
         const std::string key = externalId + ":" + binding.channelId;
 
         if (binding.actionIsDial) {
@@ -1252,7 +1249,7 @@ private:
         if (!value.is_object())
             value = str::trimmed(payload);
         const v1::ConnectivityStatus status = availabilityStatus(value);
-        reportConnectivity(entry->device.externalId, availability->channelId, status, tsMs);
+        reportConnectivity(entry->device.externalId(), availability->channelId, status, tsMs);
     }
 
     /// Say the coordinator is reachable, whenever there is reason to think
@@ -1440,11 +1437,8 @@ private:
 
     void answerCommand(v1::CmdId cmdId, v1::CmdStatus status, const std::string &error)
     {
-        v1::CmdResponse response;
-        response.id = cmdId;
-        response.tsMs = nowMs();
-        response.status = status;
-        response.error = error;
+        v1::CmdResponse response = v1::CmdResponse().setId(cmdId).setStatus(status).setError(error);
+        response.setTsMs(nowMs());
         v1::Utf8String sendError;
         if (!sendResult(response, &sendError))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send the command result: %1",
@@ -1453,12 +1447,9 @@ private:
 
     void answerAction(v1::CmdId cmdId, v1::CmdStatus status, const std::string &error)
     {
-        v1::ActionResponse response;
-        response.id = cmdId;
-        response.tsMs = nowMs();
-        response.status = status;
-        response.error = error;
-        response.resultType = v1::ActionResultType::None;
+        v1::ActionResponse response = v1::ActionResponse().setId(cmdId).setStatus(status).setError(error);
+        response.setTsMs(nowMs());
+        response.setResultType(v1::ActionResultType::None);
         v1::Utf8String sendError;
         if (!sendResult(response, &sendError))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to send the action result: %1",
@@ -1546,13 +1537,13 @@ private:
 MqttSettings mqttSettingsFor(const v1::Adapter &adapter, const Json &meta)
 {
     MqttSettings settings;
-    settings.clientId = "phi-core-z2m-" + adapter.externalId;
-    settings.host = str::trimmed(adapter.ip);
+    settings.clientId = "phi-core-z2m-" + adapter.externalId();
+    settings.host = str::trimmed(adapter.ip());
     if (settings.host.empty())
-        settings.host = str::trimmed(adapter.host);
-    settings.port = adapter.port > 0 ? adapter.port : kDefaultPort;
-    settings.username = str::trimmed(adapter.user);
-    settings.password = adapter.password;
+        settings.host = str::trimmed(adapter.host());
+    settings.port = adapter.port() > 0 ? adapter.port() : kDefaultPort;
+    settings.username = str::trimmed(adapter.user());
+    settings.password = adapter.password();
     // Read through the contract rather than out of the meta directly, so that
     // the string "false" and the boolean false mean the same thing here as
     // they do in every other adapter - which is the whole reason the fields

@@ -83,7 +83,7 @@ bool MqttClient::connect(MqttSettings settings, std::string *error)
     mosquitto_message_callback_set(m_mosq, &MqttClient::handleMessage);
     mosquitto_log_callback_set(m_mosq, &MqttClient::handleLog);
 
-    if (m_settings.tls.enabled && !applyTls(error)) {
+    if (m_settings.tls.enabled() && !applyTls(error)) {
         releaseHandle();
         return false;
     }
@@ -199,11 +199,11 @@ bool MqttClient::applyTls(std::string *error)
         return false;
     };
 
-    if (!m_settings.tls.caFile.empty()) {
-        const int rc = mosquitto_tls_set(m_mosq, m_settings.tls.caFile.c_str(), nullptr, nullptr,
+    if (!m_settings.tls.caFile().empty()) {
+        const int rc = mosquitto_tls_set(m_mosq, m_settings.tls.caFile().c_str(), nullptr, nullptr,
                                          nullptr, nullptr);
         if (rc != MOSQ_ERR_SUCCESS)
-            return fail("cannot read the CA certificate " + m_settings.tls.caFile);
+            return fail("cannot read the CA certificate " + m_settings.tls.caFile());
     } else {
         // The authorities the machine already trusts. Set as an option rather
         // than by naming a directory, so the answer stays the system's rather
@@ -213,7 +213,7 @@ bool MqttClient::applyTls(std::string *error)
             return fail("cannot use the system's trusted certificates");
     }
 
-    if (!m_settings.tls.verifyHostname) {
+    if (!m_settings.tls.verifyHostname()) {
         // The chain is still checked; this is only about whether the
         // certificate has to name the address that was dialled, which it
         // cannot when somebody connects to a broker by IP.

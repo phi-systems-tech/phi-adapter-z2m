@@ -16,14 +16,11 @@ v1::AdapterConfigField field(const char *key, v1::AdapterConfigFieldType type, c
                              v1::AdapterConfigFieldFlags flags = v1::AdapterConfigFieldFlag::None,
                              const char *parentActionId = "")
 {
-    v1::AdapterConfigField out;
-    out.key = key;
-    out.type = type;
-    out.label = label;
-    out.description = description;
-    out.defaultValue = std::move(defaultValue);
-    out.flags = flags;
-    out.parentActionId = parentActionId;
+    v1::AdapterConfigField out(key, type, label);
+    out.setDescription(description)
+        .setDefaultValue(std::move(defaultValue))
+        .setFlags(flags)
+        .setParentActionId(parentActionId);
     return out;
 }
 
@@ -33,21 +30,22 @@ v1::AdapterConfigSection brokerSection()
 {
     using Type = v1::AdapterConfigFieldType;
     v1::AdapterConfigSection out;
-    out.title = "Zigbee2MQTT";
-    out.description = "Configure the MQTT broker used by Zigbee2MQTT.";
-    out.layout.columns = 2;
+    out.setTitle("Zigbee2MQTT")
+        .setDescription("Configure the MQTT broker used by Zigbee2MQTT.")
+        .layout()
+        .setColumns(2);
 
     v1::AdapterConfigField host = field("host", Type::Hostname, "MQTT Host", "IP address or hostname of the MQTT broker.",
                                         v1::Utf8String("localhost"), v1::AdapterConfigFieldFlag::Required);
     v1::AdapterConfigField port =
         field("port", Type::Port, "MQTT Port", "TCP port of the MQTT broker.", std::int64_t{1883});
-    port.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    port.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
     v1::AdapterConfigField user =
         field("user", Type::String, "MQTT Username", "Username for MQTT authentication (optional).");
     v1::AdapterConfigField password = field("password", Type::Password, "MQTT Password",
                                             "Password for MQTT authentication (optional).", {},
                                             v1::AdapterConfigFieldFlag::Secret);
-    out.fields = {host, port, user, password};
+    out.setFields({host, port, user, password});
 
     // The transport, in the one spelling every adapter uses. Appended from the
     // SDK rather than written here: a broker reached over TLS is the same
@@ -55,18 +53,18 @@ v1::AdapterConfigSection brokerSection()
     // not have to learn this adapter's opinion about it.
     v1::AdapterConfigFieldList tls = v1::tlsConfigFields();
     if (!tls.empty())
-        tls.front().layout.newRow = true;
-    out.fields.insert(out.fields.end(), tls.begin(), tls.end());
+        tls.front().layout().setNewRow(true);
+    for (const v1::AdapterConfigField &tlsField : tls)
+        out.addField(tlsField);
 
     v1::AdapterConfigField baseTopic = field("baseTopic", Type::String, "Base topic",
                                              "Zigbee2MQTT base topic (default: zigbee2mqtt).",
                                              v1::Utf8String("zigbee2mqtt"));
-    baseTopic.layout.newRow = true;
+    baseTopic.layout().setNewRow(true);
     v1::AdapterConfigField retry = field("retryIntervalMs", Type::Integer, "Retry interval",
                                          "Reconnect interval while the broker is offline.", std::int64_t{10000});
-    retry.layout.controlWidth = v1::AdapterConfigSize::Narrow;
-    out.fields.push_back(baseTopic);
-    out.fields.push_back(retry);
+    retry.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
+    out.addField(baseTopic).addField(retry);
     return out;
 }
 
@@ -80,8 +78,7 @@ v1::AdapterConfigSection instanceSection()
     const char *settings = "settings";
 
     v1::AdapterConfigSection out;
-    out.title = "Zigbee2MQTT";
-    out.description = "Configure the MQTT broker used by Zigbee2MQTT.";
+    out.setTitle("Zigbee2MQTT").setDescription("Configure the MQTT broker used by Zigbee2MQTT.");
 
     v1::AdapterConfigField channel = field(
         "zigbeeChannel", Type::Integer, "Zigbee channel",
@@ -89,15 +86,13 @@ v1::AdapterConfigSection instanceSection()
         "Zigbee2MQTT, and devices follow without pairing again - battery devices when they next wake. Only ember "
         "and zstack coordinators can do that.",
         {}, Flag::InstanceOnly, settings);
-    channel.minValue = 11;
-    channel.maxValue = 26;
-    channel.step = 1;
-    channel.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    channel.setMinValue(11).setMaxValue(26).setStep(1);
+    channel.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
     v1::AdapterConfigField activeChannel = field("activeChannel", Type::Integer, "Active channel",
                                                  "The channel the network runs on right now.", {}, readOnly, settings);
-    activeChannel.layout.controlWidth = v1::AdapterConfigSize::Narrow;
+    activeChannel.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
 
-    out.fields = {
+    out.setFields({
         field("z2mVersion", Type::String, "Z2M Version", "Detected Zigbee2MQTT version.", {}, readOnly, settings),
         field("z2mCommit", Type::String, "Z2M Commit", "Detected Zigbee2MQTT commit.", {}, readOnly, settings),
         channel,
@@ -112,7 +107,7 @@ v1::AdapterConfigSection instanceSection()
         field("coordinatorFirmware", Type::String, "Coordinator firmware",
               "Detected Zigbee coordinator firmware revision.", {}, readOnly, settings),
         field("permitJoin", Type::Boolean, "Permit join", "Current Zigbee permit-join state.", {}, readOnly, settings),
-    };
+    });
     return out;
 }
 
@@ -142,56 +137,43 @@ v1::Utf8String iconSvg()
 v1::AdapterCapabilities capabilities()
 {
     v1::AdapterCapabilities caps;
-    caps.required = v1::AdapterRequirement::Host | v1::AdapterRequirement::UsesRetryInterval;
-    caps.optional = v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
-        | v1::AdapterRequirement::Password;
-    caps.flags = v1::AdapterCapability::SupportsDiscovery | v1::AdapterCapability::SupportsProbe
-        | v1::AdapterCapability::SupportsDeviceRename
-        // Groups are Zigbee2MQTT's own, with a numeric id a rename leaves
-        // alone; its scenes are not entities of their own and have no name
-        // this adapter could carry, so the other two bits stay off.
-        | v1::AdapterCapability::SupportsGroupRename;
+    caps.setRequired(v1::AdapterRequirement::Host | v1::AdapterRequirement::UsesRetryInterval)
+        .setOptional(v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
+                     | v1::AdapterRequirement::Password)
+        .setFlags(v1::AdapterCapability::SupportsDiscovery | v1::AdapterCapability::SupportsProbe
+                  | v1::AdapterCapability::SupportsDeviceRename
+                  // Groups are Zigbee2MQTT's own, with a numeric id a rename leaves
+                  // alone; its scenes are not entities of their own and have no name
+                  // this adapter could carry, so the other two bits stay off.
+                  | v1::AdapterCapability::SupportsGroupRename);
 
-    v1::AdapterActionDescriptor probe;
-    probe.id = "probe";
-    probe.label = "Test connection";
-    probe.description = "Reachability check.";
-    caps.factoryActions.push_back(probe);
+    caps.addFactoryAction({"probe", "Test connection", "Reachability check."});
 
-    v1::AdapterActionDescriptor settings;
-    settings.id = "settings";
-    settings.label = "Settings";
-    settings.description = "Edit Zigbee2MQTT instance settings.";
-    settings.hasForm = true;
-    settings.formLayout.width = v1::AdapterConfigSize::Wide;
-    settings.formLayout.columns = 2;
-    settings.formLayout.labelWidth = v1::AdapterConfigSize::Wide;
-    settings.loadFormOnOpen = true;
-    caps.instanceActions.push_back(settings);
+    v1::AdapterActionDescriptor settings("settings", "Settings", "Edit Zigbee2MQTT instance settings.");
+    settings.setHasForm(true).setLoadFormOnOpen(true);
+    settings.formLayout()
+        .setWidth(v1::AdapterConfigSize::Wide)
+        .setColumns(2)
+        .setLabelWidth(v1::AdapterConfigSize::Wide);
+    caps.addInstanceAction(settings);
 
-    v1::AdapterActionDescriptor permitJoin;
-    permitJoin.id = "permitJoin";
-    permitJoin.label = "Open pairing (2 min)";
-    permitJoin.description = "Allow new Zigbee devices to join for 2 minutes.";
-    permitJoin.cooldownMs = 120000;
-    caps.instanceActions.push_back(permitJoin);
+    v1::AdapterActionDescriptor permitJoin("permitJoin", "Open pairing (2 min)",
+                                           "Allow new Zigbee devices to join for 2 minutes.");
+    permitJoin.setCooldownMs(120000);
+    caps.addInstanceAction(permitJoin);
 
-    v1::AdapterActionDescriptor restart;
-    restart.id = "restartZ2M";
-    restart.label = "Restart Zigbee2MQTT";
-    restart.description = "Restarts Zigbee2MQTT. Devices may be unavailable briefly.";
-    restart.danger = true;
-    restart.confirm = {"Restart Zigbee2MQTT?", "This will briefly disconnect Zigbee devices. Continue?", "Restart", "Cancel"};
-    caps.instanceActions.push_back(restart);
+    v1::AdapterActionDescriptor restart("restartZ2M", "Restart Zigbee2MQTT",
+                                        "Restarts Zigbee2MQTT. Devices may be unavailable briefly.");
+    restart.setDanger(true).setConfirm(
+        {"Restart Zigbee2MQTT?", "This will briefly disconnect Zigbee devices. Continue?", "Restart", "Cancel"});
+    caps.addInstanceAction(restart);
 
-    v1::AdapterActionDescriptor deleteDevice;
-    deleteDevice.id = "device.delete";
-    deleteDevice.label = "Delete device";
-    deleteDevice.description = "Remove a device from Zigbee2MQTT.";
-    deleteDevice.danger = true;
-    deleteDevice.placement = v1::AdapterActionPlacement::Device;
-    deleteDevice.confirm = {"Delete device?", "This removes the device from Zigbee2MQTT. Continue?", "Delete", "Cancel"};
-    caps.instanceActions.push_back(deleteDevice);
+    v1::AdapterActionDescriptor deleteDevice("device.delete", "Delete device",
+                                             "Remove a device from Zigbee2MQTT.");
+    deleteDevice.setDanger(true)
+        .setPlacement(v1::AdapterActionPlacement::Device)
+        .setConfirm({"Delete device?", "This removes the device from Zigbee2MQTT. Continue?", "Delete", "Cancel"});
+    caps.addInstanceAction(deleteDevice);
 
     return caps;
 }
@@ -199,8 +181,7 @@ v1::AdapterCapabilities capabilities()
 v1::AdapterConfigSchema configSchema()
 {
     v1::AdapterConfigSchema schema;
-    schema.factory = brokerSection();
-    schema.instance = instanceSection();
+    schema.setFactory(brokerSection()).setInstance(instanceSection());
     return schema;
 }
 

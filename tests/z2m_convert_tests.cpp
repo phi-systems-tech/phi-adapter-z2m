@@ -26,7 +26,7 @@ namespace {
 const v1::Channel *channelById(const v1::ChannelList &channels, const std::string &id)
 {
     for (const v1::Channel &channel : channels) {
-        if (channel.externalId == id)
+        if (channel.externalId() == id)
             return &channel;
     }
     return nullptr;
@@ -89,24 +89,24 @@ void testALampBecomesALight()
 {
     const DeviceEntry lamp = buildDeviceEntry(parseObject(kLamp), ExposeFilter{});
 
-    PHI_CHECK(lamp.device.externalId == "0x00158d0001a2b3c4");
-    PHI_CHECK(lamp.device.name == "Kitchen lamp");
+    PHI_CHECK(lamp.device.externalId() == "0x00158d0001a2b3c4");
+    PHI_CHECK(lamp.device.name() == "Kitchen lamp");
     PHI_CHECK(lamp.mqttId == "Kitchen lamp");
-    PHI_CHECK(lamp.device.deviceClass == v1::DeviceClass::Light);
-    PHI_CHECK(lamp.device.manufacturer == "Philips");
-    PHI_CHECK(lamp.device.model == "9290012573A");
-    PHI_CHECK(has(lamp.device.flags, v1::DeviceFlag::Wireless));
-    PHI_CHECK(!has(lamp.device.flags, v1::DeviceFlag::Battery));
+    PHI_CHECK(lamp.device.deviceClass() == v1::DeviceClass::Light);
+    PHI_CHECK(lamp.device.manufacturer() == "Philips");
+    PHI_CHECK(lamp.device.model() == "9290012573A");
+    PHI_CHECK(has(lamp.device.flags(), v1::DeviceFlag::Wireless));
+    PHI_CHECK(!has(lamp.device.flags(), v1::DeviceFlag::Battery));
     PHI_CHECK(jsonString(lamp.meta, "model_id") == "LCT015");
     PHI_CHECK(!lamp.definitionKey.empty());
 
     const v1::Channel *state = channelById(lamp.channels, "state");
     PHI_CHECK_MSG(state != nullptr, "the lamp has no state channel");
     if (state) {
-        PHI_CHECK(state->kind == v1::ChannelKind::PowerOnOff);
-        PHI_CHECK(state->dataType == v1::ChannelDataType::Bool);
-        PHI_CHECK(has(state->flags, v1::ChannelFlag::Writable));
-        PHI_CHECK(has(state->flags, v1::ChannelFlag::Readable));
+        PHI_CHECK(state->kind() == v1::ChannelKind::PowerOnOff);
+        PHI_CHECK(state->dataType() == v1::ChannelDataType::Bool);
+        PHI_CHECK(has(state->flags(), v1::ChannelFlag::Writable));
+        PHI_CHECK(has(state->flags(), v1::ChannelFlag::Readable));
     }
     const ChannelBinding *stateBinding = lamp.binding("state");
     PHI_CHECK(stateBinding != nullptr && stateBinding->valueOn == "ON"
@@ -118,12 +118,12 @@ void testALampBecomesALight()
     PHI_CHECK_MSG(brightness != nullptr, "the lamp has no brightness channel");
     if (brightness) {
         // Percent to the outside, 0..254 to the device.
-        PHI_CHECK(brightness->kind == v1::ChannelKind::Brightness);
-        PHI_CHECK(brightness->dataType == v1::ChannelDataType::Float);
-        PHI_CHECK(brightness->minValue == 0.0);
-        PHI_CHECK(brightness->maxValue == 100.0);
-        PHI_CHECK(brightness->unit == "%");
-        PHI_CHECK(has(brightness->flags, v1::ChannelFlag::Writable));
+        PHI_CHECK(brightness->kind() == v1::ChannelKind::Brightness);
+        PHI_CHECK(brightness->dataType() == v1::ChannelDataType::Float);
+        PHI_CHECK(brightness->minValue() == 0.0);
+        PHI_CHECK(brightness->maxValue() == 100.0);
+        PHI_CHECK(brightness->unit() == "%");
+        PHI_CHECK(has(brightness->flags(), v1::ChannelFlag::Writable));
     }
 
     const v1::Channel *color = channelById(lamp.channels, "color");
@@ -136,9 +136,9 @@ void testALampBecomesALight()
     const v1::Channel *link = channelById(lamp.channels, "linkquality");
     PHI_CHECK_MSG(link != nullptr, "the lamp has no link quality channel");
     if (link) {
-        PHI_CHECK(link->kind == v1::ChannelKind::LinkQuality);
-        PHI_CHECK(link->maxValue == 100.0);
-        PHI_CHECK(!has(link->flags, v1::ChannelFlag::Writable));
+        PHI_CHECK(link->kind() == v1::ChannelKind::LinkQuality);
+        PHI_CHECK(link->maxValue() == 100.0);
+        PHI_CHECK(!has(link->flags(), v1::ChannelFlag::Writable));
     }
 
     // Every device gets these two, whatever it exposes.
@@ -158,7 +158,7 @@ void testALampBecomesALight()
         parseObject(R"({"friendly_name":"Coordinator","ieee_address":"0x00124b0029ab1234","type":"Coordinator"})"),
         ExposeFilter{});
     PHI_CHECK(coordinator.coordinator);
-    PHI_CHECK(coordinator.device.deviceClass == v1::DeviceClass::Gateway);
+    PHI_CHECK(coordinator.device.deviceClass() == v1::DeviceClass::Gateway);
 }
 
 /// Values in and out for the lamp: the scaling has to agree with itself.
@@ -237,7 +237,7 @@ void testEnumsKeepTheirNumbers()
         { "type": "numeric", "property": "voltage", "access": 1, "unit": "mV", "value_min": 2000, "value_max": 3300 }
       ] }
     })"), ExposeFilter{});
-    PHI_CHECK(sensor.device.deviceClass == v1::DeviceClass::Sensor);
+    PHI_CHECK(sensor.device.deviceClass() == v1::DeviceClass::Sensor);
 
     const ChannelBinding *sensitivity = sensor.binding("motion_sensitivity");
     PHI_CHECK(sensitivity != nullptr);
@@ -245,11 +245,11 @@ void testEnumsKeepTheirNumbers()
         PHI_CHECK(sensitivity->enumRawToValue.at("low") == static_cast<int>(v1::SensitivityLevel::Low));
         PHI_CHECK(sensitivity->enumRawToValue.at("high") == static_cast<int>(v1::SensitivityLevel::High));
         const v1::Channel *channel = channelById(sensor.channels, "motion_sensitivity");
-        PHI_CHECK(channel != nullptr && channel->choices.size() == 3);
-        PHI_CHECK(channel != nullptr && channel->choices[0].label == "Low");
-        PHI_CHECK(channel != nullptr && parseObject(channel->metaJson)["enumName"] == "SensitivityLevel");
+        PHI_CHECK(channel != nullptr && channel->choices().size() == 3);
+        PHI_CHECK(channel != nullptr && channel->choices()[0].label() == "Low");
+        PHI_CHECK(channel != nullptr && parseObject(channel->metaJson())["enumName"] == "SensitivityLevel");
         // A sensor's settings stay writable; its measurements do not.
-        PHI_CHECK(channel != nullptr && has(channel->flags, v1::ChannelFlag::Writable));
+        PHI_CHECK(channel != nullptr && has(channel->flags(), v1::ChannelFlag::Writable));
     }
     const ChannelBinding *keepTime = sensor.binding("keep_time");
     PHI_CHECK(keepTime != nullptr && keepTime->enumRawToValue.at("30") == 30);
@@ -265,11 +265,11 @@ void testEnumsKeepTheirNumbers()
     PHI_CHECK(payload["motion_sensitivity"] == "high");
 
     const v1::Channel *voltage = channelById(sensor.channels, "voltage");
-    PHI_CHECK(voltage != nullptr && voltage->unit == "V" && voltage->maxValue == 3.3);
+    PHI_CHECK(voltage != nullptr && voltage->unit() == "V" && voltage->maxValue() == 3.3);
     const auto volts = readingFor(*sensor.binding("voltage"), Json(3000));
     PHI_CHECK(volts.has_value() && std::get<double>(volts->scalar) == 3.0);
     const v1::Channel *occupancy = channelById(sensor.channels, "occupancy");
-    PHI_CHECK(occupancy != nullptr && !has(occupancy->flags, v1::ChannelFlag::Writable));
+    PHI_CHECK(occupancy != nullptr && !has(occupancy->flags(), v1::ChannelFlag::Writable));
 }
 
 /// A remote with numbered buttons and a dial.
@@ -284,13 +284,13 @@ void testARemoteBecomesButtonsAndADial()
           "button_1_press", "button_1_press_release", "button_2_hold", "dial_rotate_left_step" ] }
       ] }
     })"), ExposeFilter{});
-    PHI_CHECK(remote.device.deviceClass == v1::DeviceClass::Button);
-    PHI_CHECK(has(remote.device.flags, v1::DeviceFlag::Battery));
+    PHI_CHECK(remote.device.deviceClass() == v1::DeviceClass::Button);
+    PHI_CHECK(has(remote.device.flags(), v1::DeviceFlag::Battery));
     PHI_CHECK(channelById(remote.channels, "button1") != nullptr);
     PHI_CHECK(channelById(remote.channels, "button2") != nullptr);
     PHI_CHECK(channelById(remote.channels, "action") == nullptr);
     const v1::Channel *dial = channelById(remote.channels, "dial");
-    PHI_CHECK(dial != nullptr && dial->kind == v1::ChannelKind::RelativeRotation);
+    PHI_CHECK(dial != nullptr && dial->kind() == v1::ChannelKind::RelativeRotation);
     PHI_CHECK(remote.binding("button2") != nullptr && remote.binding("button2")->actionButtonId == 2);
     PHI_CHECK(remote.binding("dial") != nullptr && remote.binding("dial")->actionIsDial);
 
@@ -325,8 +325,8 @@ void testBridgeFacts()
     const v1::AdapterFormValues facts = bridgeFactsPatch(parseObject(kBridgeInfo));
     const auto fact = [](const v1::AdapterFormValues &values, const char *key) -> v1::ScalarValue {
         for (const v1::AdapterFormValue &value : values) {
-            if (value.key == key)
-                return std::get<v1::ScalarValue>(value.data);
+            if (value.key() == key)
+                return std::get<v1::ScalarValue>(value.data());
         }
         return {};
     };
@@ -365,10 +365,10 @@ void testBridgeFacts()
         parseObject(R"({"friendly_name":"Coordinator","ieee_address":"0x00124b0029ab1234","type":"Coordinator"})"),
         ExposeFilter{});
     applyBridgeInfoToCoordinator(parseObject(kBridgeInfo), coordinator);
-    PHI_CHECK(coordinator.device.firmware == "7.4.4.0");
-    PHI_CHECK(coordinator.device.deviceClass == v1::DeviceClass::Gateway);
+    PHI_CHECK(coordinator.device.firmware() == "7.4.4.0");
+    PHI_CHECK(coordinator.device.deviceClass() == v1::DeviceClass::Gateway);
     PHI_CHECK(coordinator.meta["serial_adapter"] == "ember");
-    PHI_CHECK(parseObject(coordinator.forWire().metaJson)["serial_port"]
+    PHI_CHECK(parseObject(coordinator.forWire().metaJson())["serial_port"]
               == "/dev/serial/by-id/usb-Itead_Sonoff-if00");
 }
 
@@ -384,12 +384,12 @@ void testBridgeFacts()
 void testTheConfigurationReachesTheClient()
 {
     v1::Adapter info;
-    info.externalId = "main";
-    info.pluginType = "z2m";
-    info.ip = "127.0.0.1";
-    info.port = 1883;
-    info.user = " zigbee2mqtt_main ";
-    info.password = "geheimgeheim";
+    info.setExternalId("main");
+    info.setPluginType("z2m");
+    info.setIp("127.0.0.1");
+    info.setPort(1883);
+    info.setUser(" zigbee2mqtt_main ");
+    info.setPassword("geheimgeheim");
 
     const MqttSettings plain = mqttSettingsFor(info, parseObject("{}"));
     PHI_CHECK(plain.clientId == "phi-core-z2m-main");
@@ -398,18 +398,18 @@ void testTheConfigurationReachesTheClient()
     PHI_CHECK(plain.username == "zigbee2mqtt_main");
     PHI_CHECK(plain.password == "geheimgeheim");
     // An instance that said nothing connects in the clear and verifies.
-    PHI_CHECK(!plain.tls.enabled);
-    PHI_CHECK(plain.tls.verifyHostname);
+    PHI_CHECK(!plain.tls.enabled());
+    PHI_CHECK(plain.tls.verifyHostname());
 
     const MqttSettings tls = mqttSettingsFor(
         info, parseObject(R"({"tls":"true","tlsCaFile":" /etc/ssl/broker.crt ","tlsVerifyHostname":false})"));
-    PHI_CHECK(tls.tls.enabled);
-    PHI_CHECK(tls.tls.caFile == "/etc/ssl/broker.crt");
-    PHI_CHECK(!tls.tls.verifyHostname);
+    PHI_CHECK(tls.tls.enabled());
+    PHI_CHECK(tls.tls.caFile() == "/etc/ssl/broker.crt");
+    PHI_CHECK(!tls.tls.verifyHostname());
 
-    info.ip.clear();
-    info.host = "broker.local";
-    info.port = 0;
+    info.setIp({});
+    info.setHost("broker.local");
+    info.setPort(0);
     const MqttSettings byName = mqttSettingsFor(info, parseObject("{}"));
     PHI_CHECK(byName.host == "broker.local");
     PHI_CHECK(byName.port == 1883);
@@ -421,12 +421,12 @@ void testTheTransportIsOfferedWhereverThePasswordIs()
 {
     const v1::AdapterConfigSchema schema = configSchema();
     int sectionsAsking = 0;
-    for (const auto &[name, section] : {std::pair{"factory", &schema.factory}, std::pair{"instance", &schema.instance}}) {
+    for (const auto &[name, section] : {std::pair{"factory", &schema.factory()}, std::pair{"instance", &schema.instance()}}) {
         std::set<std::string> keys;
         bool asksForPassword = false;
-        for (const v1::AdapterConfigField &field : section->fields) {
-            keys.insert(field.key);
-            if (field.type == v1::AdapterConfigFieldType::Password)
+        for (const v1::AdapterConfigField &field : section->fields()) {
+            keys.insert(field.key());
+            if (field.type() == v1::AdapterConfigFieldType::Password)
                 asksForPassword = true;
         }
         if (!asksForPassword)
@@ -438,17 +438,17 @@ void testTheTransportIsOfferedWhereverThePasswordIs()
     PHI_CHECK(sectionsAsking > 0);
 
     // The CA field only shows once TLS is on.
-    for (const v1::AdapterConfigField &field : schema.factory.fields) {
-        if (field.key != v1::kTlsCaFileFieldKey)
+    for (const v1::AdapterConfigField &field : schema.factory().fields()) {
+        if (field.key() != v1::kTlsCaFileFieldKey)
             continue;
-        PHI_CHECK(field.visibility.fieldKey == v1::kTlsFieldKey);
-        PHI_CHECK(std::get_if<bool>(&field.visibility.value) && std::get<bool>(field.visibility.value));
-        PHI_CHECK(field.visibility.op == v1::AdapterConfigVisibilityOp::Equals);
-        PHI_CHECK(field.type == v1::AdapterConfigFieldType::String);
+        PHI_CHECK(field.visibility().fieldKey() == v1::kTlsFieldKey);
+        PHI_CHECK(std::get_if<bool>(&field.visibility().value()) && std::get<bool>(field.visibility().value()));
+        PHI_CHECK(field.visibility().op() == v1::AdapterConfigVisibilityOp::Equals);
+        PHI_CHECK(field.type() == v1::AdapterConfigFieldType::String);
     }
     const v1::AdapterCapabilities caps = capabilities();
-    PHI_CHECK(caps.factoryActions.size() == 1 && caps.factoryActions[0].id == "probe");
-    PHI_CHECK(caps.instanceActions.size() == 4);
+    PHI_CHECK(caps.factoryActions().size() == 1 && caps.factoryActions()[0].id() == "probe");
+    PHI_CHECK(caps.instanceActions().size() == 4);
 }
 
 } // namespace

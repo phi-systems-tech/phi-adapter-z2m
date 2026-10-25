@@ -212,9 +212,9 @@ void testTheGroupListIsDiffed()
     // leaves alone.
     const GroupEntry *living = table.byExternalId("1");
     PHI_CHECK(living != nullptr);
-    PHI_CHECK(living->group.name == "Living room");
-    PHI_CHECK(living->group.deviceExternalIds.size() == 2);
-    PHI_CHECK(living->group.deviceExternalIds[0] == "0x1");
+    PHI_CHECK(living->group.name() == "Living room");
+    PHI_CHECK(living->group.deviceExternalIds().size() == 2);
+    PHI_CHECK(living->group.deviceExternalIds()[0] == "0x1");
 
     // The same list again is not news. Zigbee2MQTT republishes the whole
     // retained array whenever anything about any group changes, so without
@@ -234,7 +234,7 @@ void testTheGroupListIsDiffed()
     PHI_CHECK(result.announce.size() == 1 && result.announce[0] == "1");
     PHI_CHECK(result.renamed.size() == 1 && result.renamed[0].first == "1"
               && result.renamed[0].second == "Wohnzimmer");
-    PHI_CHECK(table.byExternalId("1")->group.name == "Wohnzimmer");
+    PHI_CHECK(table.byExternalId("1")->group.name() == "Wohnzimmer");
 
     // A device with two endpoints in one group is one member of ours, and the
     // endpoints it really has are kept in the meta rather than dropped.
@@ -248,7 +248,7 @@ void testTheGroupListIsDiffed()
     result = table.applySnapshot(twoEndpoints);
     PHI_CHECK(result.announce.size() == 1);
     const GroupEntry *split = table.byExternalId("1");
-    PHI_CHECK(split->group.deviceExternalIds.size() == 2);
+    PHI_CHECK(split->group.deviceExternalIds().size() == 2);
     PHI_CHECK(split->members.size() == 3);
     PHI_CHECK(jsonValue(split->meta, "members").size() == 3);
 

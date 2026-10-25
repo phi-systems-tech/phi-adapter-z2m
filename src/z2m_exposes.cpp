@@ -283,8 +283,8 @@ const Mapping *mappingFor(std::string_view property)
 void addBinding(DeviceEntry &entry, const v1::Channel &channel, ChannelBinding binding)
 {
     entry.channels.push_back(channel);
-    binding.channelId = channel.externalId;
-    entry.bindings.emplace(channel.externalId, std::move(binding));
+    binding.channelId = channel.externalId();
+    entry.bindings.emplace(channel.externalId(), std::move(binding));
 }
 
 void addActionChannels(const Json &expose, const std::string &property, const std::string &endpoint,
@@ -310,16 +310,16 @@ void addActionChannels(const Json &expose, const std::string &property, const st
 
     const auto buttonChannel = [&](const std::string &id, const std::string &name, int buttonId) {
         v1::Channel button;
-        button.externalId = id;
-        button.name = name;
-        button.kind = v1::ChannelKind::ButtonEvent;
-        button.dataType = v1::ChannelDataType::Int;
-        button.flags = flags;
+        button.setExternalId(id);
+        button.setName(name);
+        button.setKind(v1::ChannelKind::ButtonEvent);
+        button.setDataType(v1::ChannelDataType::Int);
+        button.setFlags(flags);
         ChannelBinding binding;
         binding.property = property;
-        binding.kind = button.kind;
-        binding.dataType = button.dataType;
-        binding.flags = button.flags;
+        binding.kind = button.kind();
+        binding.dataType = button.dataType();
+        binding.flags = button.flags();
         binding.endpoint = endpoint;
         binding.actionButtonId = buttonId;
         addBinding(entry, button, std::move(binding));
@@ -343,16 +343,16 @@ void addActionChannels(const Json &expose, const std::string &property, const st
 
     if (hasDial) {
         v1::Channel dial;
-        dial.externalId = endpoint.empty() ? "dial" : "dial_" + endpoint;
-        dial.name = labelForEndpoint("Dial Rotation", endpoint);
-        dial.kind = v1::ChannelKind::RelativeRotation;
-        dial.dataType = v1::ChannelDataType::Int;
-        dial.flags = flags;
+        dial.setExternalId(endpoint.empty() ? "dial" : "dial_" + endpoint);
+        dial.setName(labelForEndpoint("Dial Rotation", endpoint));
+        dial.setKind(v1::ChannelKind::RelativeRotation);
+        dial.setDataType(v1::ChannelDataType::Int);
+        dial.setFlags(flags);
         ChannelBinding binding;
         binding.property = property;
-        binding.kind = dial.kind;
-        binding.dataType = dial.dataType;
-        binding.flags = dial.flags;
+        binding.kind = dial.kind();
+        binding.dataType = dial.dataType();
+        binding.flags = dial.flags();
         binding.endpoint = endpoint;
         binding.actionIsDial = true;
         addBinding(entry, dial, std::move(binding));
@@ -364,7 +364,7 @@ void addChannelFromExpose(const Json &expose, const ExposeFilter &filter, Device
     const std::string property = jsonString(expose, "property");
     if (property.empty())
         return;
-    if (filter.suppressed(property, entry.device.model, jsonString(entry.meta, "model_id")))
+    if (filter.suppressed(property, entry.device.model(), jsonString(entry.meta, "model_id")))
         return;
     const std::string propLower = str::toLower(property);
     const bool isMinMaxHelper = propLower == "min" || propLower == "max"
@@ -405,30 +405,30 @@ void addChannelFromExpose(const Json &expose, const ExposeFilter &filter, Device
     }
 
     v1::Channel channel;
-    channel.externalId = channelId;
-    channel.name = labelForEndpoint(labelFromProperty(property, jsonString(expose, "label")),
-                                    endpoint);
+    channel.setExternalId(channelId);
+    channel.setName(labelForEndpoint(labelFromProperty(property, jsonString(expose, "label")),
+                                     endpoint));
     if (mapping != nullptr) {
-        channel.kind = mapping->kind;
-        channel.dataType = mapping->dataType;
-        channel.unit = mapping->unit;
+        channel.setKind(mapping->kind);
+        channel.setDataType(mapping->dataType);
+        channel.setUnit(mapping->unit);
     } else if (isEnum) {
-        channel.kind = v1::ChannelKind::Unknown;
-        channel.dataType = v1::ChannelDataType::Enum;
+        channel.setKind(v1::ChannelKind::Unknown);
+        channel.setDataType(v1::ChannelDataType::Enum);
     } else if (isBinary) {
-        channel.kind = v1::ChannelKind::Unknown;
-        channel.dataType = v1::ChannelDataType::Bool;
+        channel.setKind(v1::ChannelKind::Unknown);
+        channel.setDataType(v1::ChannelDataType::Bool);
     } else {
-        channel.kind = v1::ChannelKind::Unknown;
-        channel.dataType = v1::ChannelDataType::Float;
+        channel.setKind(v1::ChannelKind::Unknown);
+        channel.setDataType(v1::ChannelDataType::Float);
     }
     if (isEnum)
-        channel.dataType = v1::ChannelDataType::Enum;
+        channel.setDataType(v1::ChannelDataType::Enum);
 
     const int access = jsonInt(expose, "access", kAccessState);
-    channel.flags = flagsFromAccess(access);
+    channel.setFlags(flagsFromAccess(access));
 
-    if (entry.device.deviceClass == v1::DeviceClass::Sensor) {
+    if (entry.device.deviceClass() == v1::DeviceClass::Sensor) {
         static constexpr const char *kWritableSensorConfigTokens[] = {
             "calibration", "sensitivity", "threshold", "alarm", "keep_time", "interval", "unit", "mode",
         };
@@ -439,40 +439,31 @@ void addChannelFromExpose(const Json &expose, const ExposeFilter &filter, Device
                 break;
             }
         }
-        if (isSensorMeasurementKind(channel.kind))
-            channel.flags = forceReadOnly(channel.flags);
-        if (channel.kind == v1::ChannelKind::Unknown && !sensorConfigWritable)
-            channel.flags = forceReadOnly(channel.flags);
+        if (isSensorMeasurementKind(channel.kind()))
+            channel.setFlags(forceReadOnly(channel.flags()));
+        if (channel.kind() == v1::ChannelKind::Unknown && !sensorConfigWritable)
+            channel.setFlags(forceReadOnly(channel.flags()));
     }
 
     double rawMin = jsonDouble(expose, "value_min", 0.0);
     double rawMax = jsonDouble(expose, "value_max", 0.0);
     const double rawStep = jsonDouble(expose, "value_step", 1.0);
 
-    if (channel.kind == v1::ChannelKind::Brightness) {
+    if (channel.kind() == v1::ChannelKind::Brightness) {
         if (rawMax <= rawMin) {
             rawMin = 0.0;
             rawMax = 254.0;
         }
-        channel.minValue = 0.0;
-        channel.maxValue = 100.0;
-        channel.stepValue = (rawMax > rawMin && rawStep > 0.0)
-            ? (rawStep / (rawMax - rawMin)) * 100.0
-            : 1.0;
-    } else if (channel.kind == v1::ChannelKind::LinkQuality) {
-        channel.minValue = 0.0;
-        channel.maxValue = 100.0;
-        channel.stepValue = 1.0;
-    } else if (channel.kind == v1::ChannelKind::Battery
-               && channel.dataType == v1::ChannelDataType::Int) {
-        channel.minValue = 0.0;
-        channel.maxValue = rawMax > 0.0 ? rawMax : 100.0;
-        channel.stepValue = rawStep > 0.0 ? rawStep : 1.0;
-    } else if (channel.dataType == v1::ChannelDataType::Float
-               || channel.dataType == v1::ChannelDataType::Int) {
-        channel.minValue = rawMin;
-        channel.maxValue = rawMax;
-        channel.stepValue = rawStep;
+        channel.setRange(0.0, 100.0,
+                         (rawMax > rawMin && rawStep > 0.0) ? (rawStep / (rawMax - rawMin)) * 100.0 : 1.0);
+    } else if (channel.kind() == v1::ChannelKind::LinkQuality) {
+        channel.setRange(0.0, 100.0, 1.0);
+    } else if (channel.kind() == v1::ChannelKind::Battery
+               && channel.dataType() == v1::ChannelDataType::Int) {
+        channel.setRange(0.0, rawMax > 0.0 ? rawMax : 100.0, rawStep > 0.0 ? rawStep : 1.0);
+    } else if (channel.dataType() == v1::ChannelDataType::Float
+               || channel.dataType() == v1::ChannelDataType::Int) {
+        channel.setRange(rawMin, rawMax, rawStep);
     }
 
     Json channelMeta = Json::object();
@@ -540,37 +531,32 @@ void addChannelFromExpose(const Json &expose, const ExposeFilter &filter, Device
             const int mapped = it == stable.end() ? 0 : it->second;
             if (mapped == 0)
                 continue;
-            v1::AdapterConfigOption option;
-            option.value = str::number(mapped);
             std::string label;
             if (!enumName.empty())
                 label = v1::enum_names::enumNameFor(enumName, mapped, false);
-            option.label = label.empty() ? key : label;
-            channel.choices.push_back(std::move(option));
+            channel.addChoice(str::number(mapped), label.empty() ? key : label);
             enumRawToValue.emplace(key, mapped);
             enumValueToRaw.emplace(mapped, key);
         }
     }
 
     const std::string exposeUnit = jsonString(expose, "unit");
-    if (channel.unit.empty() && !exposeUnit.empty())
-        channel.unit = exposeUnit;
-    if (channel.kind == v1::ChannelKind::Voltage && exposeUnit == "mV") {
-        channel.unit = "V";
-        channel.minValue /= 1000.0;
-        channel.maxValue /= 1000.0;
-        if (channel.stepValue > 0.0)
-            channel.stepValue /= 1000.0;
+    if (channel.unit().empty() && !exposeUnit.empty())
+        channel.setUnit(exposeUnit);
+    if (channel.kind() == v1::ChannelKind::Voltage && exposeUnit == "mV") {
+        channel.setUnit("V");
+        channel.setRange(channel.minValue() / 1000.0, channel.maxValue() / 1000.0,
+                         channel.stepValue() > 0.0 ? channel.stepValue() / 1000.0 : channel.stepValue());
     }
     if (!channelMeta.empty())
-        channel.metaJson = dump(channelMeta);
+        channel.setMetaJson(dump(channelMeta));
 
     ChannelBinding binding;
     binding.property = property;
-    binding.kind = channel.kind;
-    binding.dataType = channel.dataType;
-    binding.flags = channel.flags;
-    binding.unit = channel.unit;
+    binding.kind = channel.kind();
+    binding.dataType = channel.dataType();
+    binding.flags = channel.flags();
+    binding.unit = channel.unit();
     binding.rawMin = rawMin;
     binding.rawMax = rawMax;
     binding.rawStep = rawStep;
@@ -638,7 +624,7 @@ const ChannelBinding *DeviceEntry::updateBinding() const
 v1::Device DeviceEntry::forWire() const
 {
     v1::Device out = device;
-    out.metaJson = meta.empty() ? std::string() : dump(meta);
+    out.setMetaJson(meta.empty() ? std::string() : dump(meta));
     return out;
 }
 
@@ -714,18 +700,18 @@ DeviceEntry buildDeviceEntry(const Json &obj, const ExposeFilter &filter)
     DeviceEntry entry;
     const std::string mqttId = jsonString(obj, "friendly_name");
     entry.mqttId = mqttId;
-    entry.device.name = mqttId;
-    entry.device.flags = v1::DeviceFlag::Wireless;
+    entry.device.setName(mqttId);
+    entry.device.setFlags(v1::DeviceFlag::Wireless);
     entry.definitionKey = definitionKeyOf(obj);
 
     const std::string powerSource = jsonString(obj, "power_source");
     if (str::equalsIgnoreCase(powerSource, "Battery"))
-        entry.device.flags |= v1::DeviceFlag::Battery;
+        entry.device.setFlags(entry.device.flags() | v1::DeviceFlag::Battery);
 
     const Json def = jsonValue(obj, "definition");
     if (def.is_object() && !def.empty()) {
-        entry.device.model = jsonString(def, "model", false);
-        entry.device.manufacturer = jsonString(def, "vendor", false);
+        entry.device.setModel(jsonString(def, "model", false));
+        entry.device.setManufacturer(jsonString(def, "vendor", false));
         entry.meta["description"] = jsonString(def, "description", false);
         const std::string model = jsonString(def, "model");
         if (!model.empty())
@@ -751,10 +737,10 @@ DeviceEntry buildDeviceEntry(const Json &obj, const ExposeFilter &filter)
     const std::string dateCode = jsonString(obj, "date_code", false);
     if (!dateCode.empty())
         entry.meta["date_code"] = dateCode;
-    entry.device.externalId = entry.ieee.empty() ? mqttId : entry.ieee;
+    entry.device.setExternalId(entry.ieee.empty() ? mqttId : entry.ieee);
     if (str::equalsIgnoreCase(deviceType, "Coordinator")) {
         entry.coordinator = true;
-        entry.device.deviceClass = v1::DeviceClass::Gateway;
+        entry.device.setDeviceClass(v1::DeviceClass::Gateway);
         entry.meta["coordinator"] = true;
     }
     for (const char *key : {"interview_completed", "interviewing", "supported", "disabled"}) {
@@ -775,36 +761,36 @@ DeviceEntry buildDeviceEntry(const Json &obj, const ExposeFilter &filter)
         exposes = collectExposes(def.at("exposes"));
 
     if (!entry.coordinator)
-        entry.device.deviceClass = inferDeviceClass(exposes);
+        entry.device.setDeviceClass(inferDeviceClass(exposes));
 
     for (const Json &expose : exposes)
         addChannelFromExpose(expose, filter, entry);
 
     v1::Channel availability;
-    availability.externalId = kAvailabilityChannel;
-    availability.name = "Connectivity";
-    availability.kind = v1::ChannelKind::ConnectivityStatus;
-    availability.dataType = v1::ChannelDataType::Enum;
-    availability.flags = v1::kChannelFlagDefaultRead;
+    availability.setExternalId(kAvailabilityChannel);
+    availability.setName("Connectivity");
+    availability.setKind(v1::ChannelKind::ConnectivityStatus);
+    availability.setDataType(v1::ChannelDataType::Enum);
+    availability.setFlags(v1::kChannelFlagDefaultRead);
     ChannelBinding availabilityBinding;
     availabilityBinding.property = "availability";
-    availabilityBinding.kind = availability.kind;
-    availabilityBinding.dataType = availability.dataType;
-    availabilityBinding.flags = availability.flags;
+    availabilityBinding.kind = availability.kind();
+    availabilityBinding.dataType = availability.dataType();
+    availabilityBinding.flags = availability.flags();
     availabilityBinding.isAvailability = true;
     addBinding(entry, availability, std::move(availabilityBinding));
 
     v1::Channel update;
-    update.externalId = kUpdateChannel;
-    update.name = "Firmware Update";
-    update.kind = v1::ChannelKind::DeviceSoftwareUpdate;
-    update.dataType = v1::ChannelDataType::Enum;
-    update.flags = v1::kChannelFlagDefaultRead;
+    update.setExternalId(kUpdateChannel);
+    update.setName("Firmware Update");
+    update.setKind(v1::ChannelKind::DeviceSoftwareUpdate);
+    update.setDataType(v1::ChannelDataType::Enum);
+    update.setFlags(v1::kChannelFlagDefaultRead);
     ChannelBinding updateBinding;
     updateBinding.property = "update";
-    updateBinding.kind = update.kind;
-    updateBinding.dataType = update.dataType;
-    updateBinding.flags = update.flags;
+    updateBinding.kind = update.kind();
+    updateBinding.dataType = update.dataType();
+    updateBinding.flags = update.flags();
     updateBinding.isUpdate = true;
     addBinding(entry, update, std::move(updateBinding));
 

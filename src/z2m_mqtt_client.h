@@ -48,8 +48,8 @@ struct MqttSettings {
     {
         return clientId == other.clientId && host == other.host && port == other.port
             && username == other.username && password == other.password
-            && tls.enabled == other.tls.enabled && tls.caFile == other.tls.caFile
-            && tls.verifyHostname == other.tls.verifyHostname
+            && tls.enabled() == other.tls.enabled() && tls.caFile() == other.tls.caFile()
+            && tls.verifyHostname() == other.tls.verifyHostname()
             && keepAliveSeconds == other.keepAliveSeconds;
     }
 };

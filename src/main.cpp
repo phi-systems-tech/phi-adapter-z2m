@@ -68,37 +68,29 @@ protected:
 
     void onFactoryActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
     {
-        v1::ActionResponse response;
-        response.id = request.cmdId;
-        response.tsMs = 0;
-        response.resultType = v1::ActionResultType::Boolean;
-        response.resultValue = false;
-
-        if (request.actionId != "probe") {
-            response.status = v1::CmdStatus::NotImplemented;
-            response.error = "Factory action not implemented";
-            response.resultType = v1::ActionResultType::None;
-            send(response);
+        if (request.actionId() != "probe") {
+            send(v1::ActionResponse::failure(request.cmdId(), v1::CmdStatus::NotImplemented,
+                                             "Factory action not implemented"));
             return;
         }
 
-        const ProbeTarget target = probeTargetFromParams(parseObject(request.paramsJson));
+        const ProbeTarget target = probeTargetFromParams(parseObject(request.paramsJson()));
         if (target.host.empty()) {
-            response.status = v1::CmdStatus::InvalidArgument;
-            response.error = "Host must not be empty.";
-            send(response);
+            send(v1::ActionResponse::failure(request.cmdId(), v1::CmdStatus::InvalidArgument,
+                                             "Host must not be empty.")
+                     .setResult(false, v1::ActionResultType::Boolean));
             return;
         }
 
         std::string error;
         if (probeEndpoint(target, kProbeTimeout, [this]() { return stopRequested(); }, &error)) {
-            response.status = v1::CmdStatus::Success;
-            response.resultValue = true;
+            send(v1::ActionResponse::success(request.cmdId())
+                     .setResult(true, v1::ActionResultType::Boolean));
         } else {
-            response.status = v1::CmdStatus::Failure;
-            response.error = error.empty() ? "Connection failed" : error;
+            send(v1::ActionResponse::failure(request.cmdId(), v1::CmdStatus::Failure,
+                                             error.empty() ? "Connection failed" : error)
+                     .setResult(false, v1::ActionResultType::Boolean));
         }
-        send(response);
     }
 
 private:

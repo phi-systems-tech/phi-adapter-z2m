@@ -84,14 +84,14 @@ void applyBridgeInfoToCoordinator(const Json &info, DeviceEntry &entry)
     const Json coordinatorMeta = jsonValue(coordinator, "meta");
     const std::string manufacturer = jsonString(coordinatorMeta, "manufacturer", false);
     if (!manufacturer.empty())
-        entry.device.manufacturer = manufacturer;
+        entry.device.setManufacturer(manufacturer);
     const std::string model = jsonString(coordinatorMeta, "model", false);
     if (!model.empty())
-        entry.device.model = model;
+        entry.device.setModel(model);
     const std::string firmware = coordinatorFirmware(coordinatorMeta);
     if (!firmware.empty())
-        entry.device.firmware = firmware;
-    entry.device.deviceClass = v1::DeviceClass::Gateway;
+        entry.device.setFirmware(firmware);
+    entry.device.setDeviceClass(v1::DeviceClass::Gateway);
     entry.meta["coordinator"] = coordinator.is_null() ? Json(true) : coordinator;
     const Json serial = jsonValue(jsonValue(info, "config"), "serial");
     const std::string serialPort = jsonString(serial, "port");
@@ -181,20 +181,20 @@ DeviceEntry *DeviceTable::byExternalId(std::string_view externalId)
 
 void DeviceTable::index(const DeviceEntry &entry)
 {
-    if (!entry.device.externalId.empty())
-        m_mqttByExternal[entry.device.externalId] = entry.mqttId;
+    if (!entry.device.externalId().empty())
+        m_mqttByExternal[entry.device.externalId()] = entry.mqttId;
     if (entry.coordinator)
-        m_coordinatorExternalId = entry.device.externalId;
+        m_coordinatorExternalId = entry.device.externalId();
 }
 
 void DeviceTable::unindex(const DeviceEntry &entry)
 {
-    if (!entry.device.externalId.empty()) {
-        const auto it = m_mqttByExternal.find(entry.device.externalId);
+    if (!entry.device.externalId().empty()) {
+        const auto it = m_mqttByExternal.find(entry.device.externalId());
         if (it != m_mqttByExternal.end() && it->second == entry.mqttId)
             m_mqttByExternal.erase(it);
     }
-    if (entry.coordinator && m_coordinatorExternalId == entry.device.externalId)
+    if (entry.coordinator && m_coordinatorExternalId == entry.device.externalId())
         m_coordinatorExternalId.clear();
 }
 
@@ -251,7 +251,7 @@ SnapshotResult DeviceTable::applySnapshot(const Json &devices, bool fullList,
             entry = *existing;
             if (renamed) {
                 entry.mqttId = mqttId;
-                entry.device.name = mqttId;
+                entry.device.setName(mqttId);
                 entry.meta["friendly_name"] = mqttId;
                 announce = true;
             }
@@ -299,7 +299,7 @@ SnapshotResult DeviceTable::applySnapshot(const Json &devices, bool fullList,
                 }
             }
             if (status != v1::ConnectivityStatus::Unknown) {
-                result.connectivity.push_back({entry.device.externalId, availability->channelId,
+                result.connectivity.push_back({entry.device.externalId(), availability->channelId,
                                                status});
             }
         }
@@ -312,8 +312,8 @@ SnapshotResult DeviceTable::applySnapshot(const Json &devices, bool fullList,
                 continue;
             }
             unindex(it->second);
-            if (!it->second.device.externalId.empty())
-                result.removed.push_back(it->second.device.externalId);
+            if (!it->second.device.externalId().empty())
+                result.removed.push_back(it->second.device.externalId());
             it = m_byMqttId.erase(it);
         }
     }
@@ -330,7 +330,7 @@ std::string DeviceTable::remove(std::string_view mqttId)
     const auto it = m_byMqttId.find(std::string(mqttId));
     if (it == m_byMqttId.end())
         return {};
-    const std::string externalId = it->second.device.externalId;
+    const std::string externalId = it->second.device.externalId();
     unindex(it->second);
     m_byMqttId.erase(it);
     m_heldState.erase(std::string(mqttId));
@@ -350,7 +350,7 @@ void DeviceTable::clear()
 phicore::adapter::v1::Group GroupEntry::forWire() const
 {
     phicore::adapter::v1::Group out = group;
-    out.metaJson = meta.empty() ? std::string() : dump(meta);
+    out.setMetaJson(meta.empty() ? std::string() : dump(meta));
     return out;
 }
 
@@ -379,10 +379,10 @@ GroupSnapshotResult GroupTable::applySnapshot(const Json &groups)
         // The id, not the name: a rename changes the friendly name and leaves
         // the id alone, so this is the half that can identify a group across
         // one. The same reason a device is keyed by its ieee address.
-        entry.group.externalId = std::to_string(entry.id);
-        entry.group.name = jsonString(raw, "friendly_name");
-        if (entry.group.name.empty())
-            entry.group.name = entry.group.externalId;
+        entry.group.setExternalId(std::to_string(entry.id));
+        entry.group.setName(jsonString(raw, "friendly_name"));
+        if (entry.group.name().empty())
+            entry.group.setName(entry.group.externalId());
 
         // Zigbee2MQTT addresses a member as an endpoint of a device; our own
         // membership is per device, because that is what a household points
@@ -405,15 +405,15 @@ GroupSnapshotResult GroupTable::applySnapshot(const Json &groups)
             one["endpoint"] = endpoint;
             memberMeta.push_back(one);
 
-            const auto &ids = entry.group.deviceExternalIds;
+            const auto &ids = entry.group.deviceExternalIds();
             if (std::find(ids.begin(), ids.end(), ieee) == ids.end())
-                entry.group.deviceExternalIds.push_back(ieee);
+                entry.group.addDeviceExternalId(ieee);
         }
 
         entry.meta["id"] = entry.id;
-        entry.meta["friendly_name"] = entry.group.name;
+        entry.meta["friendly_name"] = entry.group.name();
         entry.meta["members"] = memberMeta;
-        next.insert_or_assign(entry.group.externalId, std::move(entry));
+        next.insert_or_assign(entry.group.externalId(), std::move(entry));
     }
 
     for (const auto &[externalId, entry] : m_byExternalId) {
@@ -427,14 +427,14 @@ GroupSnapshotResult GroupTable::applySnapshot(const Json &groups)
             result.announce.push_back(externalId);
             continue;
         }
-        if (previous->second.group.name != entry.group.name)
-            result.renamed.emplace_back(externalId, entry.group.name);
+        if (previous->second.group.name() != entry.group.name())
+            result.renamed.emplace_back(externalId, entry.group.name());
         // Announced only where something a client can see actually changed.
         // The retained array is republished whole on any change to any group,
         // and an unchanged group going out again is what made the room events
         // in core noise before anyone looked.
-        if (previous->second.group.name != entry.group.name
-            || previous->second.group.deviceExternalIds != entry.group.deviceExternalIds
+        if (previous->second.group.name() != entry.group.name()
+            || previous->second.group.deviceExternalIds() != entry.group.deviceExternalIds()
             || previous->second.members != entry.members) {
             result.announce.push_back(externalId);
         }
