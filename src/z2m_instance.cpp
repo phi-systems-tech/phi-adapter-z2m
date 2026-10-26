@@ -238,7 +238,7 @@ protected:
             answerAction(request.cmdId(), v1::CmdStatus::NotImplemented, "probe is factory scoped");
             return;
         }
-        if (actionId != "permitJoin" && actionId != "restartZ2M" && actionId != "device.delete") {
+        if (actionId != "restartZ2M" && actionId != "device.delete") {
             answerAction(request.cmdId(), v1::CmdStatus::NotSupported, "Adapter action not supported");
             return;
         }
@@ -256,21 +256,34 @@ protected:
             return;
         }
 
-        std::string topic;
-        Json payload = Json::object();
-        if (actionId == "restartZ2M") {
-            topic = bridgeTopic("request/restart");
-        } else {
-            // Zigbee2MQTT 2.x reads `time` and nothing else; 0 would close.
-            payload["time"] = 120;
-            topic = bridgeTopic("request/permit_join");
-        }
         std::string error;
-        if (!m_client->publish(topic, dump(payload), 0, false, &error)) {
+        if (!m_client->publish(bridgeTopic("request/restart"), dump(Json::object()), 0, false, &error)) {
             answerAction(request.cmdId(), v1::CmdStatus::Failure, error);
             return;
         }
         answerAction(request.cmdId(), v1::CmdStatus::Success, {});
+    }
+
+    // "Add": Zigbee2MQTT lets new devices join for the window; they arrive
+    // through bridge/devices like any other.
+    void onPairingStart(const sdk::PairingStartRequest &request) override { permitJoin(request.cmdId(), request.durationS()); }
+    void onPairingStop(const sdk::PairingStopRequest &request) override { permitJoin(request.cmdId(), 0); }
+
+    void permitJoin(v1::CmdId cmdId, int durationS)
+    {
+        if (!brokerConnected() || !m_health.online()) {
+            answerCommand(cmdId, v1::CmdStatus::TemporarilyOffline, "Z2M bridge is offline.");
+            return;
+        }
+        // Zigbee2MQTT 2.x reads `time` and nothing else, at most 254 s; 0 closes.
+        const int seconds = std::clamp(durationS, 0, 254);
+        std::string error;
+        if (!m_client->publish(bridgeTopic("request/permit_join"), dump(Json{{"time", seconds}}), 0, false, &error)) {
+            answerCommand(cmdId, v1::CmdStatus::Failure, error);
+            return;
+        }
+        answerCommand(cmdId, v1::CmdStatus::Success, {});
+        sendPairingState(seconds > 0, seconds);
     }
 
     void onDeviceNameUpdate(const sdk::DeviceNameUpdateRequest &request) override

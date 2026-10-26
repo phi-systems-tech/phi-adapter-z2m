@@ -137,6 +137,7 @@ v1::Utf8String iconSvg()
 v1::AdapterCapabilities capabilities()
 {
     v1::AdapterCapabilities caps;
+    caps.setTopologies(v1::Topology::Local).setPairingStyles(v1::PairingStyle::JoinWindow);
     caps.setRequired(v1::AdapterRequirement::Host | v1::AdapterRequirement::UsesRetryInterval)
         .setOptional(v1::AdapterRequirement::Port | v1::AdapterRequirement::Username
                      | v1::AdapterRequirement::Password)
@@ -156,11 +157,6 @@ v1::AdapterCapabilities capabilities()
         .setColumns(2)
         .setLabelWidth(v1::AdapterConfigSize::Wide);
     caps.addInstanceAction(settings);
-
-    v1::AdapterActionDescriptor permitJoin("permitJoin", "Open pairing (2 min)",
-                                           "Allow new Zigbee devices to join for 2 minutes.");
-    permitJoin.setCooldownMs(120000);
-    caps.addInstanceAction(permitJoin);
 
     v1::AdapterActionDescriptor restart("restartZ2M", "Restart Zigbee2MQTT",
                                         "Restarts Zigbee2MQTT. Devices may be unavailable briefly.");

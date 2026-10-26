@@ -448,7 +448,10 @@ void testTheTransportIsOfferedWhereverThePasswordIs()
     }
     const v1::AdapterCapabilities caps = capabilities();
     PHI_CHECK(caps.factoryActions().size() == 1 && caps.factoryActions()[0].id() == "probe");
-    PHI_CHECK(caps.instanceActions().size() == 4);
+    // Joining is "Add" (a pairing window), not an action of its own.
+    PHI_CHECK(caps.instanceActions().size() == 3);
+    PHI_CHECK(v1::hasFlag(caps.pairingStyles(), v1::PairingStyle::JoinWindow));
+    PHI_CHECK(caps.topologies() == v1::Topology::Local);
 }
 
 } // namespace
