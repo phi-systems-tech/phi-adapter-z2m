@@ -1,3 +1,9 @@
+phi-adapter-z2m (0.0~git202610272107.0bee9b0-1) trixie; urgency=medium
+
+  * MQTT client from phi-runtime (libphi-runtime-mqtt).
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Tue, 27 Oct 2026 21:07:20 +0100
+
 phi-adapter-z2m (0.0~git202610271021.3dfd715-1) trixie; urgency=medium
 
   * Rebuilt against phi-adapter-sdk 0.29.0 (network clients).
