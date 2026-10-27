@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # No Qt. The loop, the timers and the strings come from phi-runtime through the
-# SDK; MQTT from libmosquitto driven by that loop; JSON from nlohmann, which is
+# SDK; MQTT from phi-runtime-mqtt on that loop; JSON from nlohmann, which is
 # what phi-core uses.
 find_package(nlohmann_json 3.11 REQUIRED)
 
@@ -25,25 +25,7 @@ set(PHI_ADAPTER_SDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../phi-adapter-sdk" 
 option(PHI_ADAPTER_Z2M_USE_LOCAL_ADAPTER_SDK
     "Use local ../phi-adapter-sdk checkout when available" ON)
 
-find_package(PkgConfig)
-if(PkgConfig_FOUND)
-    pkg_check_modules(MOSQUITTO IMPORTED_TARGET libmosquitto)
-endif()
-
-if(TARGET PkgConfig::MOSQUITTO)
-    add_library(mosquitto::mosquitto ALIAS PkgConfig::MOSQUITTO)
-else()
-    find_path(MOSQUITTO_INCLUDE_DIR mosquitto.h)
-    find_library(MOSQUITTO_LIBRARY mosquitto)
-    if(NOT MOSQUITTO_INCLUDE_DIR OR NOT MOSQUITTO_LIBRARY)
-        message(FATAL_ERROR "libmosquitto not found. Install libmosquitto-dev.")
-    endif()
-    add_library(mosquitto::mosquitto UNKNOWN IMPORTED)
-    set_target_properties(mosquitto::mosquitto PROPERTIES
-        IMPORTED_LOCATION "${MOSQUITTO_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${MOSQUITTO_INCLUDE_DIR}"
-    )
-endif()
+find_package(phi-runtime-mqtt CONFIG REQUIRED)
 
 if(PHI_ADAPTER_Z2M_BUILD_IPC)
     if(NOT TARGET phi::adapter-sdk)
@@ -69,7 +51,6 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
         src/z2m_exposes.cpp
         src/z2m_instance.cpp
         src/z2m_json.cpp
-        src/z2m_mqtt_client.cpp
         src/z2m_probe.cpp
         src/z2m_schema.cpp
         src/z2m_state.cpp
@@ -82,7 +63,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
         PUBLIC
             phi::adapter-sdk
             nlohmann_json::nlohmann_json
-            mosquitto::mosquitto
+            phi::runtime_mqtt
     )
 
     add_executable(phi_adapter_z2m_ipc src/main.cpp)
@@ -101,13 +82,7 @@ if(PHI_ADAPTER_Z2M_BUILD_IPC)
     target_link_libraries(z2m_behaviour_tests PRIVATE phi_adapter_z2m_core)
     add_test(NAME z2m_behaviour_tests COMMAND z2m_behaviour_tests)
 
-    # The MQTT client against a broker that behaves and one that does not.
-    find_package(Threads REQUIRED)
-    add_executable(z2m_mqtt_client_tests tests/z2m_mqtt_client_tests.cpp)
-    target_link_libraries(z2m_mqtt_client_tests PRIVATE phi_adapter_z2m_core Threads::Threads)
-    add_test(NAME z2m_mqtt_client_tests COMMAND z2m_mqtt_client_tests)
-
-    set_tests_properties(z2m_convert_tests z2m_behaviour_tests z2m_mqtt_client_tests
+    set_tests_properties(z2m_convert_tests z2m_behaviour_tests
         PROPERTIES TIMEOUT 120)
 
     set_target_properties(phi_adapter_z2m_ipc PROPERTIES

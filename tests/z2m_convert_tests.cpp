@@ -391,26 +391,26 @@ void testTheConfigurationReachesTheClient()
     info.setUser(" zigbee2mqtt_main ");
     info.setPassword("geheimgeheim");
 
-    const MqttSettings plain = mqttSettingsFor(info, parseObject("{}"));
+    const mqtt::Settings plain = mqttSettingsFor(info, parseObject("{}"));
     PHI_CHECK(plain.clientId == "phi-core-z2m-main");
     PHI_CHECK(plain.host == "127.0.0.1");
     PHI_CHECK(plain.port == 1883);
     PHI_CHECK(plain.username == "zigbee2mqtt_main");
     PHI_CHECK(plain.password == "geheimgeheim");
     // An instance that said nothing connects in the clear and verifies.
-    PHI_CHECK(!plain.tls.enabled());
-    PHI_CHECK(plain.tls.verifyHostname());
+    PHI_CHECK(!plain.tls.enabled);
+    PHI_CHECK(plain.tls.verifyHostname);
 
-    const MqttSettings tls = mqttSettingsFor(
+    const mqtt::Settings tls = mqttSettingsFor(
         info, parseObject(R"({"tls":"true","tlsCaFile":" /etc/ssl/broker.crt ","tlsVerifyHostname":false})"));
-    PHI_CHECK(tls.tls.enabled());
-    PHI_CHECK(tls.tls.caFile() == "/etc/ssl/broker.crt");
-    PHI_CHECK(!tls.tls.verifyHostname());
+    PHI_CHECK(tls.tls.enabled);
+    PHI_CHECK(tls.tls.caFile == "/etc/ssl/broker.crt");
+    PHI_CHECK(!tls.tls.verifyHostname);
 
     info.setIp({});
     info.setHost("broker.local");
     info.setPort(0);
-    const MqttSettings byName = mqttSettingsFor(info, parseObject("{}"));
+    const mqtt::Settings byName = mqttSettingsFor(info, parseObject("{}"));
     PHI_CHECK(byName.host == "broker.local");
     PHI_CHECK(byName.port == 1883);
 }

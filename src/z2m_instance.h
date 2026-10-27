@@ -10,16 +10,18 @@
 #include "phi/adapter/sdk/sidecar.h"
 
 #include "z2m_json.h"
-#include "z2m_mqtt_client.h"
+#include "phi/runtime/mqtt/client.h"
 
 namespace phicore::z2m::ipc {
+
+namespace mqtt = phi::runtime::mqtt;
 
 /// The broker connection an adapter configuration asks for. Pure, so a test
 /// can check that an account or a TLS answer given to the adapter is what
 /// reaches the socket - a half-applied configuration is silent, and an
 /// adapter with no credentials looks exactly like one whose broker does not
 /// ask for any, right up until the broker starts asking.
-MqttSettings mqttSettingsFor(const phicore::adapter::v1::Adapter &adapter, const Json &meta);
+mqtt::Settings mqttSettingsFor(const phicore::adapter::v1::Adapter &adapter, const Json &meta);
 
 std::unique_ptr<phicore::adapter::sdk::AdapterInstance> makeInstance();
 

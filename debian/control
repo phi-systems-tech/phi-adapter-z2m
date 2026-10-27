@@ -2,7 +2,7 @@ Source: phi-adapter-z2m
 Section: libs
 Priority: optional
 Maintainer: Marius Schumacher <marius.schumacher@phisys.com>
-Build-Depends: debhelper-compat (= 13), cmake, ninja-build, pkg-config, libmosquitto-dev, nlohmann-json3-dev, phi-adapter-sdk-dev (>= 0.29.0)
+Build-Depends: debhelper-compat (= 13), cmake, ninja-build, pkg-config, libphi-runtime-mqtt-dev, nlohmann-json3-dev, phi-adapter-sdk-dev (>= 0.29.0)
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Homepage: https://github.com/phi-systems-tech/phi-adapter-z2m

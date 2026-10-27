@@ -100,7 +100,7 @@ protected:
         m_client.emplace(*m_loop);
         m_client->onConnected([this]() { onBrokerConnected(); });
         m_client->onDisconnected([this](const std::string &reason) { onBrokerDisconnected(reason); });
-        m_client->onMessage([this](const MqttClient::Message &message) { onBrokerMessage(message); });
+        m_client->onMessage([this](const mqtt::Message &message) { onBrokerMessage(message); });
         m_lifecycle = Lifecycle::Running;
         setLinkUp(false, true);
         return true;
@@ -133,7 +133,7 @@ protected:
     {
         if (m_lifecycle == Lifecycle::Stopped || !m_client)
             return;
-        const MqttSettings previousSettings = m_settings;
+        const mqtt::Settings previousSettings = m_settings;
         const std::string previousBaseTopic = m_baseTopic;
         m_info = request.adapter();
         m_meta = parseObject(request.adapter().metaJson());
@@ -158,7 +158,7 @@ protected:
         log(sdk::LogLevel::Debug, sdk::LogCategory::Config,
             "broker %1:%2 (tls %3), base topic %4",
             {v1::Utf8String(m_settings.host), static_cast<std::int64_t>(m_settings.port),
-             m_settings.tls.enabled(), v1::Utf8String(m_baseTopic)});
+             m_settings.tls.enabled, v1::Utf8String(m_baseTopic)});
 
         // A new answer about where the broker is means a new connection,
         // whatever the old one was doing.
@@ -451,7 +451,7 @@ private:
         if (m_lifecycle != Lifecycle::Running || !m_client)
             return;
         m_reconnect.reset();
-        if (m_client->state() != MqttClient::State::Disconnected)
+        if (m_client->state() != mqtt::Client::State::Disconnected)
             return;
         if (str::trimmed(m_settings.host).empty()) {
             reportBrokerProblem("MQTT host is not configured");
@@ -549,7 +549,7 @@ private:
             {v1::Utf8String(reason)});
     }
 
-    void onBrokerMessage(const MqttClient::Message &message)
+    void onBrokerMessage(const mqtt::Message &message)
     {
         const TopicParts parts = splitTopic(m_baseTopic, message.topic);
         if (!parts.underBase)
@@ -1500,12 +1500,12 @@ private:
 
     phi::runtime::Loop *m_loop = nullptr;
     Lifecycle m_lifecycle = Lifecycle::Idle;
-    std::optional<MqttClient> m_client;
+    std::optional<mqtt::Client> m_client;
 
     v1::Adapter m_info;
     Json m_meta = Json::object();
     ExposeFilter m_filter;
-    MqttSettings m_settings;
+    mqtt::Settings m_settings;
     std::string m_baseTopic = "zigbee2mqtt";
     int m_retryIntervalMs = kDefaultRetryIntervalMs;
     sdk::Reachability m_broker;
@@ -1547,9 +1547,9 @@ private:
 
 } // namespace
 
-MqttSettings mqttSettingsFor(const v1::Adapter &adapter, const Json &meta)
+mqtt::Settings mqttSettingsFor(const v1::Adapter &adapter, const Json &meta)
 {
-    MqttSettings settings;
+    mqtt::Settings settings;
     settings.clientId = "phi-core-z2m-" + adapter.externalId();
     settings.host = str::trimmed(adapter.ip());
     if (settings.host.empty())
@@ -1561,9 +1561,10 @@ MqttSettings mqttSettingsFor(const v1::Adapter &adapter, const Json &meta)
     // the string "false" and the boolean false mean the same thing here as
     // they do in every other adapter - which is the whole reason the fields
     // are shared.
-    settings.tls = v1::tlsSettingsFrom(scalarOf(jsonValue(meta, v1::kTlsFieldKey)),
-                                       scalarOf(jsonValue(meta, v1::kTlsCaFileFieldKey)),
-                                       scalarOf(jsonValue(meta, v1::kTlsVerifyHostnameFieldKey)));
+    const v1::TlsSettings tls = v1::tlsSettingsFrom(scalarOf(jsonValue(meta, v1::kTlsFieldKey)),
+                                                    scalarOf(jsonValue(meta, v1::kTlsCaFileFieldKey)),
+                                                    scalarOf(jsonValue(meta, v1::kTlsVerifyHostnameFieldKey)));
+    settings.tls = mqtt::Tls{tls.enabled(), tls.caFile(), tls.verifyHostname()};
     return settings;
 }
 
